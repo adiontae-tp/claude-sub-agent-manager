@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 
 function App() {
-  // Auto-detect parent directory (one level up from where this tool is installed)
-  const [projectDir, setProjectDir] = useState('../')
+  // Auto-detect current directory (where this tool is installed)
+  const [projectDir, setProjectDir] = useState('./')
   const [agentName, setAgentName] = useState('')
   const [agentDescription, setAgentDescription] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
@@ -334,7 +334,14 @@ ${agentCommands.join('\n\n')}`
       }
 
       const data = await response.json()
-      setAgentSuggestions(data.suggestions || [])
+      // Ensure suggestions is always an array
+      const suggestions = Array.isArray(data.suggestions) ? data.suggestions : []
+      setAgentSuggestions(suggestions)
+      
+      if (suggestions.length === 0) {
+        setMessage({ type: 'warning', text: 'No agent suggestions were generated. Try providing more detailed content.' })
+      }
+      
       setImportMethod('text') // Reset for next time
       setImportContent('')
       setImportFile(null)
@@ -470,8 +477,8 @@ ${agentCommands.join('\n\n')}`
       })
       .catch(err => {
         console.error('Error fetching parent directory:', err)
-        // Fallback to relative path
-        setProjectDir('../')
+        // Fallback to current directory
+        setProjectDir('./')
         validateDirectory()
         loadExistingAgents()
       })
@@ -512,7 +519,7 @@ ${agentCommands.join('\n\n')}`
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
               <span className="text-sm text-blue-900">
-                Managing agents in parent directory: <span className="font-mono bg-blue-100 px-2 py-0.5 rounded">../.claude/agents/</span>
+                Managing agents in: <span className="font-mono bg-blue-100 px-2 py-0.5 rounded">./.claude/agents/</span>
               </span>
             </div>
           </div>
@@ -1187,50 +1194,52 @@ ${agentCommands.join('\n\n')}`
                 ) : (
                   <>
                     {/* Agent Suggestions Preview */}
-                    <div className="mb-6">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                        AI Suggested {agentSuggestions.length} Agents
-                      </h3>
-                      <div className="space-y-4">
-                        {agentSuggestions.map((agent, index) => (
-                          <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex-1">
-                                <input
-                                  type="text"
-                                  value={agent.name}
-                                  onChange={(e) => updateSuggestion(index, 'name', e.target.value)}
-                                  className="text-lg font-semibold bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none w-full mb-2"
-                                />
+                    {agentSuggestions && agentSuggestions.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                          AI Suggested {agentSuggestions.length} Agents
+                        </h3>
+                        <div className="space-y-4">
+                          {agentSuggestions.map((agent, index) => (
+                            <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <input
+                                    type="text"
+                                    value={agent.name}
+                                    onChange={(e) => updateSuggestion(index, 'name', e.target.value)}
+                                    className="text-lg font-semibold bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none w-full mb-2"
+                                  />
+                                  <textarea
+                                    value={agent.description}
+                                    onChange={(e) => updateSuggestion(index, 'description', e.target.value)}
+                                    className="text-sm text-gray-600 bg-transparent border border-gray-300 rounded p-2 focus:border-blue-500 focus:outline-none w-full resize-none"
+                                    rows={2}
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => removeSuggestion(index)}
+                                  className="ml-4 text-red-600 hover:text-red-700"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                              <div>
+                                <label className="text-xs font-medium text-gray-700">System Prompt:</label>
                                 <textarea
-                                  value={agent.description}
-                                  onChange={(e) => updateSuggestion(index, 'description', e.target.value)}
-                                  className="text-sm text-gray-600 bg-transparent border border-gray-300 rounded p-2 focus:border-blue-500 focus:outline-none w-full resize-none"
-                                  rows={2}
+                                  value={agent.systemPrompt}
+                                  onChange={(e) => updateSuggestion(index, 'systemPrompt', e.target.value)}
+                                  className="mt-1 text-xs text-gray-700 bg-white border border-gray-300 rounded p-2 focus:border-blue-500 focus:outline-none w-full"
+                                  rows={4}
                                 />
                               </div>
-                              <button
-                                onClick={() => removeSuggestion(index)}
-                                className="ml-4 text-red-600 hover:text-red-700"
-                              >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
                             </div>
-                            <div>
-                              <label className="text-xs font-medium text-gray-700">System Prompt:</label>
-                              <textarea
-                                value={agent.systemPrompt}
-                                onChange={(e) => updateSuggestion(index, 'systemPrompt', e.target.value)}
-                                className="mt-1 text-xs text-gray-700 bg-white border border-gray-300 rounded p-2 focus:border-blue-500 focus:outline-none w-full"
-                                rows={4}
-                              />
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </>
                 )}
               </div>

@@ -23,8 +23,8 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 
 2. **Set up your Anthropic API key:**
    ```bash
-   cp .env.template .env
-   # Edit .env and add your ANTHROPIC_API_KEY
+   cp .env.template backend/.env
+   # Edit backend/.env and add your ANTHROPIC_API_KEY
    ```
 
 3. **Install and run:**
@@ -36,19 +36,20 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 4. **Open in browser:**
    Navigate to `http://localhost:5173`
 
-The tool will automatically detect and manage agents in your project's `.claude/agents/` directory.
+The tool will automatically manage agents in its own `.claude/agents/` directory.
 
 ## 📁 How It Works
 
-Claude Sub-Agent Manager looks for agents in the **parent directory** of where it's installed:
+Claude Sub-Agent Manager stores agents in the same directory where it's installed:
 
 ```
-your-project/
+claude-sub-agent-manager/
 ├── .claude/
 │   ├── agents/          # Your sub-agents are stored here
 │   └── agents-status/   # Agent status tracking files
-├── claude-sub-agent-manager/   # This tool
-└── your-project-files/
+├── backend/             # Express server
+├── frontend/            # React app
+└── other-files/
 ```
 
 ## 🎯 Usage

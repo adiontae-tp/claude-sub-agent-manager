@@ -31,10 +31,11 @@ app.use(bodyParser.json());
 
 // Get parent directory path
 app.get('/api/parent-directory', (req, res) => {
-  const parentDir = path.resolve(__dirname, '../../..')
+  // Use the current directory where the app is installed
+  const currentDir = path.resolve(__dirname, '../..')
   res.json({ 
-    path: parentDir,
-    agentsPath: path.join(parentDir, '.claude', 'agents')
+    path: currentDir,
+    agentsPath: path.join(currentDir, '.claude', 'agents')
   })
 })
 
@@ -429,20 +430,26 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
     try {
       // Parse the JSON response
       const suggestions = JSON.parse(response.content[0].text);
-      res.json({ suggestions });
+      res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
     } catch (parseError) {
       // If parsing fails, try to extract JSON from the response
       const jsonMatch = response.content[0].text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
-        const suggestions = JSON.parse(jsonMatch[0]);
-        res.json({ suggestions });
+        try {
+          const suggestions = JSON.parse(jsonMatch[0]);
+          res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
+        } catch (e) {
+          console.error('Failed to parse extracted JSON:', e);
+          res.json({ suggestions: [], error: 'Failed to parse Claude response' });
+        }
       } else {
-        throw new Error('Failed to parse Claude response as JSON');
+        console.error('No JSON array found in response');
+        res.json({ suggestions: [], error: 'Claude did not return a valid JSON array' });
       }
     }
   } catch (error) {
     console.error('Error analyzing content:', error);
-    res.status(500).json({ error: error.message || 'Failed to analyze content' });
+    res.status(500).json({ suggestions: [], error: error.message || 'Failed to analyze content' });
   }
 });
 
@@ -450,7 +457,7 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
 app.post('/api/analyze-file-for-agents', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ suggestions: [], error: 'No file uploaded' });
     }
 
     // Convert file buffer to text
@@ -484,20 +491,26 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
     try {
       // Parse the JSON response
       const suggestions = JSON.parse(response.content[0].text);
-      res.json({ suggestions });
+      res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
     } catch (parseError) {
       // If parsing fails, try to extract JSON from the response
       const jsonMatch = response.content[0].text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
-        const suggestions = JSON.parse(jsonMatch[0]);
-        res.json({ suggestions });
+        try {
+          const suggestions = JSON.parse(jsonMatch[0]);
+          res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
+        } catch (e) {
+          console.error('Failed to parse extracted JSON:', e);
+          res.json({ suggestions: [], error: 'Failed to parse Claude response' });
+        }
       } else {
-        throw new Error('Failed to parse Claude response as JSON');
+        console.error('No JSON array found in response');
+        res.json({ suggestions: [], error: 'Claude did not return a valid JSON array' });
       }
     }
   } catch (error) {
     console.error('Error analyzing file:', error);
-    res.status(500).json({ error: error.message || 'Failed to analyze file' });
+    res.status(500).json({ suggestions: [], error: error.message || 'Failed to analyze file' });
   }
 });
 
