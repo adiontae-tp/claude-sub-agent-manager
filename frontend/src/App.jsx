@@ -14,7 +14,7 @@ function App() {
   const [agentStatus, setAgentStatus] = useState(null)
   const [selectedAgentsForStart, setSelectedAgentsForStart] = useState(new Set())
   const [expandedAgents, setExpandedAgents] = useState(new Set())
-  const [viewMode, setViewMode] = useState('list') // 'list' or 'dashboard'
+  const [viewMode, setViewMode] = useState('list') // 'list', 'dashboard', or 'tasks'
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [importMethod, setImportMethod] = useState('text') // 'text' or 'file'
@@ -23,6 +23,10 @@ function App() {
   const [agentSuggestions, setAgentSuggestions] = useState([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [agentStatuses, setAgentStatuses] = useState({})
+  const [showTaskInput, setShowTaskInput] = useState({})
+  const [newTask, setNewTask] = useState({})
+  const [taskOrder, setTaskOrder] = useState([])
+  const [draggedTask, setDraggedTask] = useState(null)
 
   // Validate and format agent name
   const formatAgentName = (name) => {
@@ -205,22 +209,47 @@ function App() {
 
   // Load all agent statuses
   const loadAllAgentStatuses = async () => {
-    if (!projectDir || existingAgents.length === 0) return
-
     const statuses = {}
     for (const agent of existingAgents) {
-      try {
-        const response = await fetch(`http://localhost:3001/api/agent-status/${encodeURIComponent(projectDir)}/${agent.name}`)
-        const data = await response.json()
-        if (data.exists) {
-          statuses[agent.name] = data
-        }
-      } catch (error) {
-        console.error(`Failed to load status for ${agent.name}:`, error)
+      const status = await loadAgentStatus(agent, false)
+      if (status) {
+        statuses[agent.name] = status
       }
     }
     setAgentStatuses(statuses)
   }
+
+  // Build task list from selected agents
+  const buildTaskList = () => {
+    const tasks = []
+    Array.from(selectedAgentsForStart).forEach(agentName => {
+      const agent = existingAgents.find(a => a.name === agentName)
+      if (agent?.tasks) {
+        agent.tasks.forEach((task, index) => {
+          tasks.push({
+            id: `${agentName}-${index}`,
+            task,
+            agentName,
+            originalIndex: index
+          })
+        })
+      }
+    })
+    return tasks
+  }
+
+  // Initialize task order when switching to tasks view or when selection changes
+  useEffect(() => {
+    if (viewMode === 'tasks') {
+      const tasks = buildTaskList()
+      // Only reset if the tasks have changed
+      const currentIds = taskOrder.map(t => t.id).join(',')
+      const newIds = tasks.map(t => t.id).join(',')
+      if (currentIds !== newIds) {
+        setTaskOrder(tasks)
+      }
+    }
+  }, [viewMode, selectedAgentsForStart, existingAgents])
 
   // Toggle expanded state for agent
   const toggleAgentExpanded = (agentName) => {
@@ -273,10 +302,53 @@ function App() {
       return
     }
 
-    const agentCommands = Array.from(selectedAgentsForStart).map(agentName => {
-      const agent = existingAgents.find(a => a.name === agentName)
-      return `Use the ${agentName} sub agent to ${agent?.description.toLowerCase() || 'complete its assigned tasks'}`
-    })
+    let command = ''
+    
+    // If we're in tasks view and have a custom order, use it
+    if (viewMode === 'tasks' && taskOrder.length > 0) {
+      const commandParts = []
+      let currentAgent = null
+      let currentTasks = []
+      
+      taskOrder.forEach((taskItem, index) => {
+        if (currentAgent !== taskItem.agentName) {
+          // Finish previous agent's tasks
+          if (currentAgent && currentTasks.length > 0) {
+            commandParts.push(`use the ${currentAgent} sub agent to ${currentTasks.join(' and ')}`)
+          }
+          currentAgent = taskItem.agentName
+          currentTasks = [taskItem.task]
+        } else {
+          currentTasks.push(taskItem.task)
+        }
+      })
+      
+      // Add the last agent's tasks
+      if (currentAgent && currentTasks.length > 0) {
+        commandParts.push(`use the ${currentAgent} sub agent to ${currentTasks.join(' and ')}`)
+      }
+      
+      command = commandParts.map((part, index) => {
+        if (index === 0) return part.charAt(0).toUpperCase() + part.slice(1)
+        return 'then ' + part
+      }).join(', ')
+    } else {
+      // Original behavior for list view
+      const agentCommands = Array.from(selectedAgentsForStart).map(agentName => {
+        const agent = existingAgents.find(a => a.name === agentName)
+        
+        // If agent has tasks, include them in the command
+        if (agent?.tasks && agent.tasks.length > 0) {
+          const taskList = agent.tasks.join(' and ')
+          return `Use the ${agentName} sub agent to ${taskList}`
+        }
+        
+        // Fallback to description if no tasks
+        return `Use the ${agentName} sub agent to ${agent?.description.toLowerCase() || 'complete its assigned tasks'}`
+      })
+      
+      command = agentCommands.join('\n\n')
+    }
 
     // Add explicit instructions about status file updates
     const instructions = `IMPORTANT: Each sub-agent MUST update their status file at ${projectDir}/.claude/agents-status/[agent-name]-status.md regularly with:
@@ -287,7 +359,7 @@ function App() {
 
 Now starting the following sub-agents:
 
-${agentCommands.join('\n\n')}`
+${command}`
 
     navigator.clipboard.writeText(instructions)
     setMessage({ 
@@ -406,7 +478,64 @@ ${agentCommands.join('\n\n')}`
   }
 
   const removeSuggestion = (index) => {
-    setAgentSuggestions(agentSuggestions.filter((_, i) => i !== index))
+    const updated = agentSuggestions.filter((_, i) => i !== index)
+    setAgentSuggestions(updated)
+  }
+
+  // Add a task to an agent
+  const addTaskToAgent = async (agent) => {
+    const taskText = newTask[agent.name]?.trim()
+    if (!taskText) return
+
+    try {
+      const encodedDir = encodeURIComponent(projectDir)
+      const currentTasks = agent.tasks || []
+      const updatedTasks = [...currentTasks, taskText]
+      
+      const response = await fetch(`http://localhost:3001/api/update-agent-tasks/${encodedDir}/${agent.name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks: updatedTasks })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update tasks')
+      }
+
+      // Clear input and refresh agents
+      setNewTask({ ...newTask, [agent.name]: '' })
+      setShowTaskInput({ ...showTaskInput, [agent.name]: false })
+      await loadExistingAgents()
+      
+      setMessage({ type: 'success', text: 'Task added successfully' })
+    } catch (error) {
+      console.error('Error adding task:', error)
+      setMessage({ type: 'error', text: 'Failed to add task' })
+    }
+  }
+
+  // Remove a task from an agent
+  const removeTaskFromAgent = async (agent, taskIndex) => {
+    try {
+      const encodedDir = encodeURIComponent(projectDir)
+      const updatedTasks = agent.tasks.filter((_, index) => index !== taskIndex)
+      
+      const response = await fetch(`http://localhost:3001/api/update-agent-tasks/${encodedDir}/${agent.name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks: updatedTasks })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update tasks')
+      }
+
+      await loadExistingAgents()
+      setMessage({ type: 'success', text: 'Task removed successfully' })
+    } catch (error) {
+      console.error('Error removing task:', error)
+      setMessage({ type: 'error', text: 'Failed to remove task' })
+    }
   }
 
   // Auto-refresh active agents
@@ -551,14 +680,24 @@ ${agentCommands.join('\n\n')}`
               >
                 Dashboard
               </button>
+              <button
+                onClick={() => setViewMode('tasks')}
+                className={`px-4 py-2 rounded-md transition-colors ${
+                  viewMode === 'tasks'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                All Tasks
+              </button>
             </div>
             <div className="flex items-center gap-2">
-              {selectedAgentsForStart.size > 0 && viewMode === 'list' && (
+              {selectedAgentsForStart.size > 0 && (viewMode === 'list' || viewMode === 'tasks') && (
                 <button
                   onClick={generateBatchStartCommand}
                   className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
                 >
-                  Start {selectedAgentsForStart.size} Selected
+                  {viewMode === 'tasks' ? 'Copy Sequential Command' : `Start ${selectedAgentsForStart.size} Selected`}
                 </button>
               )}
               <button
@@ -614,106 +753,205 @@ ${agentCommands.join('\n\n')}`
                   ) : (
                     <div className="space-y-2">
                       {existingAgents.map((agent) => (
-                        <div
-                          key={agent.filename}
-                          className={`p-4 rounded-lg transition-colors ${
-                            selectedAgent?.name === agent.name
-                              ? 'bg-blue-50 border-2 border-blue-500'
-                              : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <input
-                              type="checkbox"
-                              checked={selectedAgentsForStart.has(agent.name)}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                toggleAgentSelection(agent.name)
-                              }}
-                              className="mt-1 h-4 w-4 text-blue-600 rounded border-gray-300"
-                            />
-                            <div className="flex-1">
-                              <div 
-                                className="cursor-pointer"
-                                onClick={() => loadAgentStatus(agent)}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-                                  {agentStatuses[agent.name] && (
-                                    <span className={`text-xs px-2 py-1 rounded-full ${
-                                      agentStatuses[agent.name].status === 'active' ? 'bg-green-100 text-green-800' :
-                                      agentStatuses[agent.name].status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                                      'bg-yellow-100 text-yellow-800'
-                                    }`}>
-                                      {agentStatuses[agent.name].status}
-                                    </span>
-                                  )}
+                          <div 
+                            key={agent.name} 
+                            className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                              selectedAgent?.name === agent.name 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-gray-200 hover:border-gray-300'
+                            }`}
+                            onClick={() => {
+                              setSelectedAgent(agent)
+                              loadAgentStatus(agent)
+                            }}
+                          >
+                            <div className="space-y-3">
+                              {/* Agent Header */}
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedAgentsForStart.has(agent.name)}
+                                      onChange={(e) => {
+                                        e.stopPropagation()
+                                        toggleAgentSelection(agent.name)
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-4 h-4 text-blue-600 rounded"
+                                    />
+                                    <h3 className="font-semibold text-gray-900">{agent.name}</h3>
+                                    {agentStatuses[agent.name] && (
+                                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                        agentStatuses[agent.name].status === 'active' ? 'bg-green-100 text-green-800' :
+                                        agentStatuses[agent.name].status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                                        agentStatuses[agent.name].status === 'blocked' ? 'bg-red-100 text-red-800' :
+                                        'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {agentStatuses[agent.name].status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-gray-600 mt-1">{agent.description}</p>
                                 </div>
-                                <p className="text-sm text-gray-600 mb-2">{agent.description}</p>
-                              </div>
-                              
-                              <div className="flex items-center justify-between">
+                                
                                 {/* Delete Button */}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     deleteAgent(agent)
                                   }}
-                                  className="text-xs text-red-600 hover:text-red-700"
+                                  className="text-red-600 hover:text-red-700 p-1"
+                                  title="Delete agent"
                                 >
-                                  Delete
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
+                              </div>
+                              
+                              {/* Tasks Section - More Prominent */}
+                              <div className="bg-gray-50 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                    </svg>
+                                    Tasks ({agent.tasks?.length || 0})
+                                  </h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setShowTaskInput({ ...showTaskInput, [agent.name]: !showTaskInput[agent.name] })
+                                    }}
+                                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Add Task
+                                  </button>
+                                </div>
                                 
-                                {/* Completed Tasks Summary */}
-                                {agentStatuses[agent.name]?.todos && agentStatuses[agent.name].todos.length > 0 && (
+                                {/* Task Input */}
+                                {showTaskInput[agent.name] && (
+                                  <div className="mb-3 flex gap-2">
+                                    <input
+                                      type="text"
+                                      value={newTask[agent.name] || ''}
+                                      onChange={(e) => setNewTask({ ...newTask, [agent.name]: e.target.value })}
+                                      onKeyPress={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.stopPropagation()
+                                          addTaskToAgent(agent)
+                                        }
+                                      }}
+                                      placeholder="Describe the task..."
+                                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        addTaskToAgent(agent)
+                                      }}
+                                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                                    >
+                                      Add
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setShowTaskInput({ ...showTaskInput, [agent.name]: false })
+                                        setNewTask({ ...newTask, [agent.name]: '' })
+                                      }}
+                                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                )}
+                                
+                                {/* Task List */}
+                                {agent.tasks && agent.tasks.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {agent.tasks.map((task, index) => (
+                                      <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
+                                        <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-semibold">
+                                          {index + 1}
+                                        </div>
+                                        <span className="flex-1 text-gray-700">{task}</span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            removeTaskFromAgent(agent, index)
+                                          }}
+                                          className="text-red-600 hover:text-red-700 p-1"
+                                          title="Remove task"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-500 italic">No tasks assigned yet. Click "Add Task" to get started.</p>
+                                )}
+                              </div>
+                              
+                              {/* Status Tracking Summary */}
+                              {agentStatuses[agent.name]?.todos && agentStatuses[agent.name].todos.length > 0 && (
+                                <div className="flex items-center justify-between pt-3 border-t border-gray-200">
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       toggleAgentExpanded(agent.name)
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
                                   >
                                     <svg 
-                                      className={`w-3 h-3 transition-transform ${expandedAgents.has(agent.name) ? 'rotate-90' : ''}`} 
+                                      className={`w-4 h-4 transition-transform ${expandedAgents.has(agent.name) ? 'rotate-90' : ''}`} 
                                       fill="currentColor" 
                                       viewBox="0 0 20 20"
                                     >
                                       <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
                                     </svg>
+                                    View Progress
+                                  </button>
+                                  <span className="text-sm text-gray-600">
                                     {(() => {
                                       const completed = agentStatuses[agent.name].todos.filter(t => t.completed).length
                                       const total = agentStatuses[agent.name].todos.length
-                                      return `${completed}/${total} tasks completed`
+                                      return `${completed}/${total} completed`
                                     })()}
-                                  </button>
-                                )}
-                              </div>
+                                  </span>
+                                </div>
+                              )}
                               
-                              {expandedAgents.has(agent.name) && (
-                                <div className="mt-2 ml-4 text-xs space-y-1">
-                                  {agentStatuses[agent.name].todos
-                                    .filter(todo => todo.completed)
-                                    .map((todo, index) => (
-                                      <div key={index} className="flex items-start gap-2">
-                                        <svg className="w-3 h-3 text-green-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                        <span className="text-gray-600 line-through">{todo.text}</span>
-                                      </div>
-                                    ))}
-                                  {agentStatuses[agent.name].todos
-                                    .filter(todo => !todo.completed)
-                                    .map((todo, index) => (
-                                      <div key={index} className="flex items-start gap-2">
-                                        <div className="w-3 h-3 border border-gray-400 rounded-sm mt-0.5"></div>
-                                        <span className="text-gray-700">{todo.text}</span>
-                                      </div>
-                                    ))}
+                              {/* Expanded Progress View */}
+                              {expandedAgents.has(agent.name) && agentStatuses[agent.name]?.todos && (
+                                <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-2">
+                                  <h5 className="text-sm font-semibold text-gray-700 mb-2">Progress Tracking:</h5>
+                                  {agentStatuses[agent.name].todos.map((todo, index) => (
+                                    <div key={index} className="flex items-start gap-2">
+                                      <input 
+                                        type="checkbox" 
+                                        checked={todo.completed} 
+                                        readOnly 
+                                        className="mt-0.5"
+                                      />
+                                      <span className={`text-sm ${todo.completed ? 'line-through text-gray-500' : 'text-gray-700'}`}>
+                                        {todo.text}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
                           </div>
-                        </div>
                       ))}
                       
                       {selectedAgentsForStart.size > 0 && (
@@ -749,6 +987,31 @@ ${agentCommands.join('\n\n')}`
                       <p className="text-sm text-gray-500 mb-6">
                         Last updated: {new Date(agentStatus.last_updated).toLocaleString()}
                       </p>
+                      
+                      {/* Claude Code Command */}
+                      <div className="mb-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Start Command</h3>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
+                          <code className="flex-1 text-sm font-mono text-gray-900">
+                            {selectedAgent.tasks && selectedAgent.tasks.length > 0 
+                              ? `Use the ${selectedAgent.name} sub agent to ${selectedAgent.tasks.join(' and ')}`
+                              : `Use the ${selectedAgent.name} sub agent to ${selectedAgent.description.toLowerCase()}`
+                            }
+                          </code>
+                          <button
+                            onClick={() => {
+                              const command = selectedAgent.tasks && selectedAgent.tasks.length > 0 
+                                ? `Use the ${selectedAgent.name} sub agent to ${selectedAgent.tasks.join(' and ')}`
+                                : `Use the ${selectedAgent.name} sub agent to ${selectedAgent.description.toLowerCase()}`
+                              navigator.clipboard.writeText(command)
+                              setMessage({ type: 'success', text: 'Command copied to clipboard!' })
+                            }}
+                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Todo List */}
@@ -793,15 +1056,18 @@ ${agentCommands.join('\n\n')}`
           {/* Dashboard View */}
           {viewMode === 'dashboard' && (
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">All Tasks Overview</h2>
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Project Dashboard</h2>
+                <p className="text-gray-600">Overview of all agents, tasks, and project progress</p>
+              </div>
               
               {existingAgents.length === 0 ? (
                 <div className="text-center py-16">
                   <svg className="w-24 h-24 mx-auto text-gray-300 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">No Tasks Yet</h3>
-                  <p className="text-gray-500 mb-6">Create agents to start tracking tasks and progress</p>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">No Agents Yet</h3>
+                  <p className="text-gray-500 mb-6">Create agents to start managing your project</p>
                   <div className="flex gap-4 justify-center">
                     <button
                       onClick={() => setShowCreateForm(true)}
@@ -820,10 +1086,26 @@ ${agentCommands.join('\n\n')}`
               ) : (
                 <>
                   {(() => {
-                    // Collect all tasks from all agents
+                    // Collect all data for dashboard
                     const allTasks = []
+                    const allAssignedTasks = []
+                    const agentStats = {}
+                    
                     existingAgents.forEach(agent => {
                       const status = agentStatuses[agent.name]
+                      const assignedTasks = agent.tasks || []
+                      
+                      // Track assigned tasks
+                      assignedTasks.forEach((task, index) => {
+                        allAssignedTasks.push({
+                          id: `${agent.name}-${index}`,
+                          task,
+                          agentName: agent.name,
+                          status: status?.status || 'unknown'
+                        })
+                      })
+                      
+                      // Track status tracking tasks
                       if (status?.todos) {
                         status.todos.forEach(todo => {
                           allTasks.push({
@@ -833,85 +1115,177 @@ ${agentCommands.join('\n\n')}`
                           })
                         })
                       }
+                      
+                      // Build agent stats
+                      agentStats[agent.name] = {
+                        assignedTasks: assignedTasks.length,
+                        status: status?.status || 'unknown',
+                        lastUpdated: status?.last_updated,
+                        completedTodos: status?.todos?.filter(t => t.completed).length || 0,
+                        totalTodos: status?.todos?.length || 0
+                      }
                     })
 
                     const completedTasks = allTasks.filter(t => t.completed)
                     const pendingTasks = allTasks.filter(t => !t.completed)
                     const totalTasks = allTasks.length
                     const progressPercent = totalTasks > 0 ? (completedTasks.length / totalTasks) * 100 : 0
+                    
+                    const activeAgents = existingAgents.filter(a => agentStatuses[a.name]?.status === 'active')
+                    const completedAgents = existingAgents.filter(a => agentStatuses[a.name]?.status === 'completed')
+                    const blockedAgents = existingAgents.filter(a => agentStatuses[a.name]?.status === 'blocked')
 
                     return (
                       <>
-                        {/* Overall Progress */}
-                        <div className="mb-8">
-                          <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">Overall Progress</h3>
-                            <span className="text-sm text-gray-600">
-                              {completedTasks.length} of {totalTasks} tasks completed
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-4">
-                            <div 
-                              className="bg-blue-600 h-4 rounded-full transition-all duration-300 flex items-center justify-center" 
-                              style={{ width: `${progressPercent}%` }}
-                            >
-                              {progressPercent > 10 && (
-                                <span className="text-xs text-white font-medium">
-                                  {Math.round(progressPercent)}%
-                                </span>
-                              )}
+                        {/* Key Metrics */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                          <div className="bg-blue-50 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-blue-600">Total Agents</p>
+                                <p className="text-2xl font-bold text-blue-900">{existingAgents.length}</p>
+                              </div>
+                              <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                              </svg>
                             </div>
                           </div>
                           
-                          {/* Compact Agent Status Summary */}
-                          <div className="mt-3 flex items-center gap-4">
-                            <span className="text-sm text-gray-600">Agents:</span>
-                            <div className="flex flex-wrap gap-2">
-                              {existingAgents.map(agent => {
-                                const status = agentStatuses[agent.name]
-                                if (!status) return null
-                                
-                                return (
-                                  <span 
-                                    key={agent.name}
-                                    className={`text-xs px-2 py-0.5 rounded-full ${
-                                      status.status === 'active' ? 'bg-green-100 text-green-800' :
-                                      status.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                                      status.status === 'blocked' ? 'bg-red-100 text-red-800' :
-                                      'bg-gray-100 text-gray-600'
-                                    }`}
-                                  >
-                                    {agent.name}
-                                  </span>
-                                )
-                              })}
+                          <div className="bg-green-50 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-green-600">Assigned Tasks</p>
+                                <p className="text-2xl font-bold text-green-900">{allAssignedTasks.length}</p>
+                              </div>
+                              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                              </svg>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-yellow-50 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-yellow-600">Active Agents</p>
+                                <p className="text-2xl font-bold text-yellow-900">{activeAgents.length}</p>
+                              </div>
+                              <svg className="w-8 h-8 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-purple-50 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-purple-600">Progress</p>
+                                <p className="text-2xl font-bold text-purple-900">{Math.round(progressPercent)}%</p>
+                              </div>
+                              <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                              </svg>
                             </div>
                           </div>
                         </div>
 
+                        {/* Agent Overview */}
+                        <div className="mb-8">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4">Agent Overview</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {existingAgents.map(agent => {
+                              const stats = agentStats[agent.name]
+                              const status = agentStatuses[agent.name]
+                              
+                              return (
+                                <div key={agent.name} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                  <div className="flex items-start justify-between mb-3">
+                                    <div>
+                                      <h4 className="font-semibold text-gray-900">{agent.name}</h4>
+                                      <p className="text-sm text-gray-600">{agent.description}</p>
+                                    </div>
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                      stats.status === 'active' ? 'bg-green-100 text-green-800' :
+                                      stats.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                                      stats.status === 'blocked' ? 'bg-red-100 text-red-800' :
+                                      'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {stats.status}
+                                    </span>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-gray-600">Assigned Tasks:</span>
+                                      <span className="font-medium">{stats.assignedTasks}</span>
+                                    </div>
+                                    {stats.totalTodos > 0 && (
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Progress:</span>
+                                        <span className="font-medium">{stats.completedTodos}/{stats.totalTodos}</span>
+                                      </div>
+                                    )}
+                                    {stats.lastUpdated && (
+                                      <div className="text-xs text-gray-500">
+                                        Updated: {new Date(stats.lastUpdated).toLocaleDateString()}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Task Progress */}
+                        {totalTasks > 0 && (
+                          <div className="mb-8">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-gray-900">Task Progress</h3>
+                              <span className="text-sm text-gray-600">
+                                {completedTasks.length} of {totalTasks} tasks completed
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
+                              <div 
+                                className="bg-blue-600 h-4 rounded-full transition-all duration-300 flex items-center justify-center" 
+                                style={{ width: `${progressPercent}%` }}
+                              >
+                                {progressPercent > 10 && (
+                                  <span className="text-xs text-white font-medium">
+                                    {Math.round(progressPercent)}%
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Recent Activity */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          {/* Pending Tasks */}
+                          {/* Assigned Tasks */}
                           <div>
                             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                              Pending Tasks ({pendingTasks.length})
+                              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                              </svg>
+                              Assigned Tasks ({allAssignedTasks.length})
                             </h3>
-                            <div className="space-y-2 max-h-96 overflow-y-auto">
-                              {pendingTasks.length === 0 ? (
-                                <p className="text-gray-500 text-sm">No pending tasks</p>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                              {allAssignedTasks.length === 0 ? (
+                                <p className="text-gray-500 text-sm">No tasks assigned to agents</p>
                               ) : (
-                                pendingTasks.map((task, index) => (
+                                allAssignedTasks.map((taskItem, index) => (
                                   <div 
-                                    key={`pending-${index}`} 
-                                    className="bg-gray-50 rounded-lg p-3 flex items-start gap-3"
+                                    key={taskItem.id} 
+                                    className="bg-blue-50 rounded-lg p-3 flex items-start gap-3"
                                   >
-                                    <div className="w-4 h-4 border-2 border-gray-400 rounded mt-0.5 flex-shrink-0"></div>
+                                    <div className="w-4 h-4 border-2 border-blue-400 rounded mt-0.5 flex-shrink-0"></div>
                                     <div className="flex-1">
-                                      <p className="text-sm text-gray-700">{task.text}</p>
+                                      <p className="text-sm text-gray-700">{taskItem.task}</p>
                                       <p className="text-xs text-gray-500 mt-1">
                                         Agent: <span className={`font-medium ${
-                                          task.agentStatus === 'active' ? 'text-green-600' : 'text-gray-600'
-                                        }`}>{task.agentName}</span>
+                                          taskItem.status === 'active' ? 'text-green-600' : 'text-gray-600'
+                                        }`}>{taskItem.agentName}</span>
                                       </p>
                                     </div>
                                   </div>
@@ -920,64 +1294,186 @@ ${agentCommands.join('\n\n')}`
                             </div>
                           </div>
 
-                          {/* Completed Tasks */}
+                          {/* Status Tracking Tasks */}
                           <div>
                             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                              <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              Completed Tasks ({completedTasks.length})
+                              Status Tracking ({totalTasks})
                             </h3>
-                            <div className="space-y-2 max-h-96 overflow-y-auto">
-                              {completedTasks.length === 0 ? (
-                                <p className="text-gray-500 text-sm">No completed tasks</p>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                              {totalTasks === 0 ? (
+                                <p className="text-gray-500 text-sm">No status tracking tasks yet</p>
                               ) : (
-                                completedTasks.map((task, index) => (
-                                  <div 
-                                    key={`completed-${index}`} 
-                                    className="bg-green-50 rounded-lg p-3 flex items-start gap-3"
-                                  >
-                                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                    <div className="flex-1">
-                                      <p className="text-sm text-gray-600 line-through">{task.text}</p>
-                                      <p className="text-xs text-gray-500 mt-1">
-                                        Agent: <span className="font-medium">{task.agentName}</span>
-                                      </p>
+                                <>
+                                  {pendingTasks.slice(0, 3).map((task, index) => (
+                                    <div 
+                                      key={`pending-${index}`} 
+                                      className="bg-yellow-50 rounded-lg p-3 flex items-start gap-3"
+                                    >
+                                      <div className="w-4 h-4 border-2 border-yellow-400 rounded mt-0.5 flex-shrink-0"></div>
+                                      <div className="flex-1">
+                                        <p className="text-sm text-gray-700">{task.text}</p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          Agent: <span className="font-medium">{task.agentName}</span>
+                                        </p>
+                                      </div>
                                     </div>
-                                  </div>
-                                ))
+                                  ))}
+                                  {completedTasks.slice(0, 3).map((task, index) => (
+                                    <div 
+                                      key={`completed-${index}`} 
+                                      className="bg-green-50 rounded-lg p-3 flex items-start gap-3"
+                                    >
+                                      <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                      <div className="flex-1">
+                                        <p className="text-sm text-gray-600 line-through">{task.text}</p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          Agent: <span className="font-medium">{task.agentName}</span>
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {(pendingTasks.length > 3 || completedTasks.length > 3) && (
+                                    <p className="text-xs text-gray-500 text-center">
+                                      Showing first 3 of each type...
+                                    </p>
+                                  )}
+                                </>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Statistics */}
-                        <div className="mt-6 pt-4 border-t flex items-center justify-center gap-6 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-gray-900">{existingAgents.length}</span>
-                            <span className="text-gray-600">Total Agents</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-green-600">
-                              {existingAgents.filter(a => agentStatuses[a.name]?.status === 'active').length}
-                            </span>
-                            <span className="text-gray-600">Active</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-yellow-600">{pendingTasks.length}</span>
-                            <span className="text-gray-600">Pending</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-blue-600">{completedTasks.length}</span>
-                            <span className="text-gray-600">Completed</span>
+                        {/* Quick Actions */}
+                        <div className="mt-8 pt-6 border-t">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              onClick={() => setViewMode('list')}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                            >
+                              Manage Agents
+                            </button>
+                            <button
+                              onClick={() => setViewMode('tasks')}
+                              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
+                            >
+                              Reorder Tasks
+                            </button>
+                            <button
+                              onClick={() => setShowCreateForm(true)}
+                              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                            >
+                              Add New Agent
+                            </button>
+                            <button
+                              onClick={() => setShowImportModal(true)}
+                              className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm"
+                            >
+                              Import Agents
+                            </button>
                           </div>
                         </div>
                       </>
                     )
                   })()}
                 </>
+              )}
+            </div>
+          )}
+
+          {/* Tasks View */}
+          {viewMode === 'tasks' && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">All Tasks - Drag to Reorder</h2>
+                <p className="text-gray-600">
+                  {selectedAgentsForStart.size === 0 
+                    ? 'Select agents to see their tasks' 
+                    : `Showing tasks from ${selectedAgentsForStart.size} selected agent${selectedAgentsForStart.size > 1 ? 's' : ''}`
+                  }
+                </p>
+              </div>
+
+              {selectedAgentsForStart.size > 0 && taskOrder.length > 0 ? (
+                <div className="space-y-2">
+                  {taskOrder.map((taskItem, index) => (
+                    <div
+                      key={taskItem.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedTask(taskItem)
+                        e.dataTransfer.effectAllowed = 'move'
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        if (!draggedTask || draggedTask.id === taskItem.id) return
+                        
+                        const newOrder = [...taskOrder]
+                        const draggedIndex = newOrder.findIndex(t => t.id === draggedTask.id)
+                        const dropIndex = index
+                        
+                        // Remove dragged item
+                        newOrder.splice(draggedIndex, 1)
+                        // Insert at new position
+                        newOrder.splice(dropIndex, 0, draggedTask)
+                        
+                        setTaskOrder(newOrder)
+                        setDraggedTask(null)
+                      }}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 cursor-move hover:shadow-md transition-shadow"
+                    >
+                      <div className="text-gray-400">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M7 2a2 2 0 00-2 2v1a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zM5 7a2 2 0 012-2h6a2 2 0 012 2v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7zM7 12a2 2 0 00-2 2v1a2 2 0 002 2h6a2 2 0 002-2v-1a2 2 0 00-2-2H7z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">{taskItem.task}</div>
+                        <div className="text-sm text-gray-600">Agent: {taskItem.agentName}</div>
+                      </div>
+                      <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                        #{index + 1}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : selectedAgentsForStart.size > 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-gray-500">The selected agents have no tasks assigned.</p>
+                  <p className="text-sm text-gray-400 mt-2">Add tasks to agents in the Agent List view.</p>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  <p className="text-gray-500">No agents selected</p>
+                  <p className="text-sm text-gray-400 mt-2">Select agents in the Agent List view to see and reorder their tasks.</p>
+                </div>
+              )}
+
+              {/* Copy Command Button */}
+              {selectedAgentsForStart.size > 0 && taskOrder.length > 0 && (
+                <div className="mt-6 flex justify-center">
+                  <button
+                    onClick={generateBatchStartCommand}
+                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy Sequential Command
+                  </button>
+                </div>
               )}
             </div>
           )}

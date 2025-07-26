@@ -77,10 +77,22 @@ app.get('/api/list-agents/:encodedDir', async (req, res) => {
           const nameMatch = frontmatter.match(/name:\s*(.+)/);
           const descMatch = frontmatter.match(/description:\s*(.+)/);
           
+          // Parse tasks - look for tasks array in YAML
+          let tasks = [];
+          const tasksMatch = frontmatter.match(/tasks:\s*\n((?:\s*-\s*.+\n?)*)/);
+          if (tasksMatch) {
+            tasks = tasksMatch[1]
+              .split('\n')
+              .filter(line => line.trim().startsWith('-'))
+              .map(line => line.trim().substring(1).trim())
+              .filter(task => task.length > 0);
+          }
+          
           agents.push({
             filename: file,
             name: nameMatch ? nameMatch[1].trim() : file.replace('.md', ''),
-            description: descMatch ? descMatch[1].trim() : 'No description'
+            description: descMatch ? descMatch[1].trim() : 'No description',
+            tasks: tasks
           });
         }
       }
@@ -356,6 +368,46 @@ app.post('/api/agent-status/:encodedDir/:agentName', async (req, res) => {
     await fs.writeFile(statusFile, content, 'utf-8');
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update agent tasks
+app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const { agentName } = req.params;
+    const { tasks } = req.body;
+    
+    const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+    
+    // Read current agent file
+    const content = await fs.readFile(agentFile, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid agent file format' });
+    }
+    
+    let frontmatter = match[1];
+    const body = match[2];
+    
+    // Remove existing tasks if any
+    frontmatter = frontmatter.replace(/tasks:\s*\n((?:\s*-\s*.+\n)*)/g, '');
+    
+    // Add new tasks if any
+    if (tasks && tasks.length > 0) {
+      const tasksYaml = 'tasks:\n' + tasks.map(task => `  - ${task}`).join('\n');
+      frontmatter = frontmatter.trim() + '\n' + tasksYaml;
+    }
+    
+    // Write updated content
+    const updatedContent = `---\n${frontmatter}\n---\n${body}`;
+    await fs.writeFile(agentFile, updatedContent, 'utf-8');
+    
+    res.json({ success: true, message: 'Tasks updated successfully' });
+  } catch (error) {
+    console.error('Error updating tasks:', error);
     res.status(500).json({ error: error.message });
   }
 });
