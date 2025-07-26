@@ -412,6 +412,361 @@ app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
   }
 });
 
+// Get agent content (for editing)
+app.get('/api/get-agent-content/:encodedDir/:agentName', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const { agentName } = req.params;
+    
+    const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+    
+    // Check if agent exists
+    const agentExists = await fs.access(agentFile).then(() => true).catch(() => false);
+    if (!agentExists) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    // Read agent file
+    const content = await fs.readFile(agentFile, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid agent file format' });
+    }
+    
+    const frontmatter = match[1];
+    const systemPrompt = match[2];
+    
+    // Parse frontmatter
+    const nameMatch = frontmatter.match(/name:\s*(.+)/);
+    const descMatch = frontmatter.match(/description:\s*(.+)/);
+    
+    res.json({
+      name: nameMatch ? nameMatch[1].trim() : agentName,
+      description: descMatch ? descMatch[1].trim() : '',
+      systemPrompt: systemPrompt.trim()
+    });
+  } catch (error) {
+    console.error('Error reading agent content:', error);
+    res.status(500).json({ error: 'Failed to read agent content' });
+  }
+});
+
+// Update agent
+app.post('/api/update-agent', async (req, res) => {
+  const { directory, oldName, newName, description, systemPrompt } = req.body;
+  
+  // Validate name format
+  if (!/^[a-z-]+$/.test(newName)) {
+    return res.status(400).json({ error: 'Agent name must contain only lowercase letters and hyphens' });
+  }
+  
+  const agentsDir = path.join(directory, '.claude', 'agents');
+  const oldAgentFile = path.join(agentsDir, `${oldName}.md`);
+  const newAgentFile = path.join(agentsDir, `${newName}.md`);
+  const oldStatusFile = path.join(directory, '.claude', 'agents-status', `${oldName}-status.md`);
+  const newStatusFile = path.join(directory, '.claude', 'agents-status', `${newName}-status.md`);
+  
+  try {
+    // Check if old agent exists
+    const oldAgentExists = await fs.access(oldAgentFile).then(() => true).catch(() => false);
+    if (!oldAgentExists) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    // Check if new name already exists (if different)
+    if (oldName !== newName) {
+      const newAgentExists = await fs.access(newAgentFile).then(() => true).catch(() => false);
+      if (newAgentExists) {
+        return res.status(400).json({ error: `Agent '${newName}' already exists` });
+      }
+    }
+    
+    // Create enhanced system prompt with status tracking
+    const enhancedSystemPrompt = `${systemPrompt}
+
+## Status Tracking
+
+You have a status file at .claude/agents-status/${newName}-status.md that you should update regularly.
+
+Use the following format for your status file:
+
+\`\`\`markdown
+---
+agent: ${newName}
+last_updated: YYYY-MM-DD HH:MM:SS
+status: active|completed|blocked
+---
+
+# Current Plan
+
+[Describe your current approach and strategy]
+
+# Todo List
+
+- [ ] Task 1 description
+- [x] Completed task
+- [ ] Task 3 description
+
+# Progress Updates
+
+## YYYY-MM-DD HH:MM:SS
+[Describe what you accomplished and any blockers]
+
+## YYYY-MM-DD HH:MM:SS
+[Another update]
+\`\`\`
+
+Always update this file when:
+1. Starting a new task
+2. Completing significant work
+3. Encountering blockers
+4. Changing your approach`;
+
+    // Create new agent content
+    const content = `---
+name: ${newName}
+description: ${description}
+---
+
+${enhancedSystemPrompt}
+`;
+    
+    // Write new agent file
+    await fs.writeFile(newAgentFile, content, 'utf-8');
+    
+    // Delete old agent file if name changed
+    if (oldName !== newName) {
+      await fs.unlink(oldAgentFile).catch(err => console.warn(`Failed to delete old agent file: ${err.message}`));
+      
+      // Rename status file if it exists
+      const oldStatusExists = await fs.access(oldStatusFile).then(() => true).catch(() => false);
+      if (oldStatusExists) {
+        await fs.rename(oldStatusFile, newStatusFile).catch(err => console.warn(`Failed to rename status file: ${err.message}`));
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Agent updated successfully${oldName !== newName ? ` and renamed from '${oldName}' to '${newName}'` : ''}`
+    });
+  } catch (error) {
+    console.error('Error updating agent:', error);
+    res.status(500).json({ error: 'Failed to update agent: ' + error.message });
+  }
+});
+
+// Load agent templates from directory
+app.get('/api/agent-templates', async (req, res) => {
+  try {
+    const templatesDir = path.join(__dirname, '..', 'agent-templates');
+    const files = await fs.readdir(templatesDir);
+    const templates = [];
+    
+    for (const file of files) {
+      if (file.endsWith('.md') && file !== 'README.md') {
+        const content = await fs.readFile(path.join(templatesDir, file), 'utf-8');
+        
+        // Parse template content
+        const nameMatch = content.match(/## Agent Details[\s\S]*?\*\*Name\*\*:\s*(.+)/);
+        const descMatch = content.match(/## Agent Details[\s\S]*?\*\*Description\*\*:\s*(.+)/);
+        const categoryMatch = content.match(/## Agent Details[\s\S]*?\*\*Category\*\*:\s*(.+)/);
+        
+        // Extract system prompt (everything after "## System Prompt")
+        const systemPromptMatch = content.match(/## System Prompt\s*\n\s*([\s\S]*?)(?=\n## |$)/);
+        
+        if (nameMatch && descMatch && systemPromptMatch) {
+          templates.push({
+            name: nameMatch[1].trim(),
+            description: descMatch[1].trim(),
+            category: categoryMatch ? categoryMatch[1].trim() : 'General',
+            systemPrompt: systemPromptMatch[1].trim(),
+            filename: file
+          });
+        }
+      }
+    }
+    
+    res.json({ templates });
+  } catch (error) {
+    console.error('Error loading templates:', error);
+    res.status(500).json({ error: 'Failed to load templates' });
+  }
+});
+
+// Tech Stack API Endpoints
+
+// Get tech stack technologies and common stacks
+app.get('/api/tech-stack/technologies', async (req, res) => {
+  try {
+    const techStackData = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'tech-stack-data.json'), 'utf-8'));
+    res.json({ technologies: techStackData.technologies, commonStacks: techStackData.commonStacks });
+  } catch (error) {
+    console.error('Error loading tech stack data:', error);
+    res.status(500).json({ error: 'Failed to load tech stack data' });
+  }
+});
+
+// Get global tech stack for a project
+app.get('/api/tech-stack/global/:encodedDir', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const techStackFile = path.join(directory, '.claude', 'tech-stack.json');
+    
+    const exists = await fs.access(techStackFile).then(() => true).catch(() => false);
+    if (exists) {
+      const techStack = JSON.parse(await fs.readFile(techStackFile, 'utf-8'));
+      res.json({ techStack });
+    } else {
+      res.json({ techStack: {} });
+    }
+  } catch (error) {
+    console.error('Error loading global tech stack:', error);
+    res.status(500).json({ error: 'Failed to load global tech stack' });
+  }
+});
+
+// Save global tech stack for a project
+app.post('/api/tech-stack/global', async (req, res) => {
+  try {
+    const { directory, techStack } = req.body;
+    
+    if (!directory) {
+      return res.status(400).json({ error: 'Directory is required' });
+    }
+    
+    const claudeDir = path.join(directory, '.claude');
+    const techStackFile = path.join(claudeDir, 'tech-stack.json');
+    
+    // Ensure .claude directory exists
+    await fs.mkdir(claudeDir, { recursive: true });
+    
+    // Save tech stack
+    await fs.writeFile(techStackFile, JSON.stringify(techStack, null, 2), 'utf-8');
+    
+    res.json({ success: true, message: 'Global tech stack saved successfully' });
+  } catch (error) {
+    console.error('Error saving global tech stack:', error);
+    res.status(500).json({ error: 'Failed to save global tech stack' });
+  }
+});
+
+// Get agent-specific tech stack
+app.get('/api/tech-stack/agent/:encodedDir/:agentName', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const agentName = req.params.agentName;
+    const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+    
+    const exists = await fs.access(agentFile).then(() => true).catch(() => false);
+    if (exists) {
+      const content = await fs.readFile(agentFile, 'utf-8');
+      
+      // Parse YAML frontmatter for tech stack
+      const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+      if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1];
+        const techStackMatch = frontmatter.match(/techStack:\s*\n([\s\S]*?)(?=\n\w|$)/);
+        
+        if (techStackMatch) {
+          // Parse the tech stack YAML
+          const techStackYaml = techStackMatch[1];
+          const techStack = {};
+          
+          // Simple YAML parsing for tech stack
+          const lines = techStackYaml.split('\n');
+          let currentCategory = null;
+          
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('-')) {
+              currentCategory = trimmed.replace(':', '');
+              techStack[currentCategory] = [];
+            } else if (trimmed.startsWith('-') && currentCategory) {
+              const tech = trimmed.replace('-', '').trim();
+              if (tech) {
+                techStack[currentCategory].push(tech);
+              }
+            }
+          }
+          
+          res.json({ techStack });
+        } else {
+          res.json({ techStack: {} });
+        }
+      } else {
+        res.json({ techStack: {} });
+      }
+    } else {
+      res.status(404).json({ error: 'Agent not found' });
+    }
+  } catch (error) {
+    console.error('Error loading agent tech stack:', error);
+    res.status(500).json({ error: 'Failed to load agent tech stack' });
+  }
+});
+
+// Save agent-specific tech stack
+app.post('/api/tech-stack/agent', async (req, res) => {
+  try {
+    const { directory, agentName, techStack } = req.body;
+    
+    if (!directory || !agentName) {
+      return res.status(400).json({ error: 'Directory and agent name are required' });
+    }
+    
+    const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+    
+    const exists = await fs.access(agentFile).then(() => true).catch(() => false);
+    if (!exists) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    const content = await fs.readFile(agentFile, 'utf-8');
+    
+    // Parse existing frontmatter
+    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    let newContent = content;
+    
+    if (frontmatterMatch) {
+      // Update existing frontmatter
+      const frontmatter = frontmatterMatch[1];
+      let updatedFrontmatter = frontmatter;
+      
+      // Remove existing techStack if present
+      updatedFrontmatter = updatedFrontmatter.replace(/techStack:\s*\n([\s\S]*?)(?=\n\w|$)/g, '');
+      
+      // Add new techStack
+      if (Object.keys(techStack).length > 0) {
+        const techStackYaml = Object.entries(techStack)
+          .filter(([_, techs]) => techs && techs.length > 0)
+          .map(([category, techs]) => `  ${category}:\n${techs.map(tech => `    - ${tech}`).join('\n')}`)
+          .join('\n');
+        
+        updatedFrontmatter += `\ntechStack:\n${techStackYaml}`;
+      }
+      
+      newContent = content.replace(frontmatterMatch[0], `---\n${updatedFrontmatter}\n---\n`);
+    } else {
+      // Create new frontmatter
+      const techStackYaml = Object.entries(techStack)
+        .filter(([_, techs]) => techs && techs.length > 0)
+        .map(([category, techs]) => `  ${category}:\n${techs.map(tech => `    - ${tech}`).join('\n')}`)
+        .join('\n');
+      
+      const newFrontmatter = `---\ntechStack:\n${techStackYaml}\n---\n\n`;
+      newContent = newFrontmatter + content;
+    }
+    
+    await fs.writeFile(agentFile, newContent, 'utf-8');
+    
+    res.json({ success: true, message: 'Agent tech stack saved successfully' });
+  } catch (error) {
+    console.error('Error saving agent tech stack:', error);
+    res.status(500).json({ error: 'Failed to save agent tech stack' });
+  }
+});
+
 // Delete an agent
 app.delete('/api/delete-agent/:encodedDir/:agentName', async (req, res) => {
   try {

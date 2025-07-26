@@ -1,0 +1,51 @@
+{
+  "technologies": [
+    "React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js", "Gatsby", "Remix",
+    "React Native", "Expo", "React Native CLI",
+    "TypeScript", "JavaScript", "CoffeeScript", "JSX", "TSX",
+    "Tailwind CSS", "Bootstrap", "Material-UI", "Ant Design", "Styled Components", "CSS Modules", "Sass", "Less",
+    "NativeBase", "Gluestack", "NativeWind", "Tamagui", "React Native Elements",
+    "Redux", "Zustand", "MobX", "Context API", "Recoil", "Jotai",
+    "Webpack", "Vite", "Rollup", "Parcel", "Create React App", "Vue CLI",
+    "Node.js", "Python", "Java", "Go", "Rust", "C#", "PHP", "Ruby", "Scala", "Kotlin",
+    "Express.js", "FastAPI", "Django", "Flask", "Spring Boot", "Gin", "Actix", "ASP.NET", "Laravel", "Rails", "Koa", "Hapi",
+    "GraphQL", "REST", "gRPC", "WebSockets", "Server-Sent Events",
+    "JWT", "OAuth", "Session-based auth", "Passport.js", "Auth0",
+    "PostgreSQL", "MySQL", "SQLite", "MongoDB", "Redis", "Cassandra", "DynamoDB", "Firebase", "Supabase",
+    "Prisma", "Sequelize", "TypeORM", "Mongoose", "SQLAlchemy", "Entity Framework",
+    "PlanetScale", "Neon", "Railway", "MongoDB Atlas",
+    "Git", "GitHub", "GitLab", "Bitbucket", "SVN",
+    "Docker", "Kubernetes", "Docker Compose", "Helm",
+    "AWS", "Azure", "GCP", "Vercel", "Netlify", "Railway", "Heroku",
+    "GitHub Actions", "Jenkins", "CircleCI", "Travis CI", "GitLab CI",
+    "npm", "yarn", "pnpm", "pip", "cargo", "maven", "gradle",
+    "Jest", "Vitest", "Mocha", "Chai", "Cypress", "Playwright", "Selenium", "Testing Library",
+    "React Testing Library", "Vue Test Utils", "Angular Testing",
+    "Postman", "Insomnia", "Thunder Client", "REST Client",
+    "Storybook", "Chromatic", "Percy",
+    "Local Development", "Staging", "Production",
+    "Serverless", "Static Hosting", "CDN", "Load Balancer", "Auto Scaling"
+  ],
+  "commonStacks": {
+    "react-node": {
+      "name": "React + Node.js",
+      "description": "Modern full-stack JavaScript application",
+      "technologies": ["React", "TypeScript", "Tailwind CSS", "Node.js", "Express.js", "SQLite", "Git", "npm", "Jest", "Local Development"]
+    },
+    "vue-python": {
+      "name": "Vue.js + Python",
+      "description": "Vue frontend with Python backend",
+      "technologies": ["Vue.js", "JavaScript", "Tailwind CSS", "Python", "FastAPI", "SQLite", "Git", "pip", "Jest", "pytest", "Local Development"]
+    },
+    "next-vercel": {
+      "name": "Next.js + Vercel",
+      "description": "Full-stack React with Vercel deployment",
+      "technologies": ["Next.js", "React", "TypeScript", "Tailwind CSS", "Node.js", "PostgreSQL", "Git", "npm", "Jest", "Vercel"]
+    },
+    "react-native": {
+      "name": "React Native",
+      "description": "Cross-platform mobile development",
+      "technologies": ["React Native", "Expo", "TypeScript", "NativeBase", "Redux", "Firebase", "Git", "npm", "Jest", "Local Development"]
+    }
+  }
+} 

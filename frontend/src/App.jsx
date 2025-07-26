@@ -27,6 +27,11 @@ function App() {
   const [newTask, setNewTask] = useState({})
   const [taskOrder, setTaskOrder] = useState([])
   const [draggedTask, setDraggedTask] = useState(null)
+  const [editingAgent, setEditingAgent] = useState(null)
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false)
+  const [customTemplates, setCustomTemplates] = useState([])
+  const [draggedTaskAgent, setDraggedTaskAgent] = useState(null)
+  const [draggedTaskIndex, setDraggedTaskIndex] = useState(null)
 
   // Validate and format agent name
   const formatAgentName = (name) => {
@@ -66,7 +71,12 @@ function App() {
     try {
       const response = await fetch(`http://localhost:3001/api/list-agents/${encodeURIComponent(projectDir)}`)
       const data = await response.json()
-      setExistingAgents(data.agents || [])
+      const agents = data.agents || []
+      setExistingAgents(agents)
+      
+      // Auto-select all agents by default
+      const allAgentNames = new Set(agents.map(agent => agent.name))
+      setSelectedAgentsForStart(allAgentNames)
     } catch (error) {
       console.error('Failed to load agents:', error)
     }
@@ -185,6 +195,11 @@ function App() {
         setAgentDescription('')
         setSystemPrompt('')
         setShowCreateForm(false)
+        
+        // Add the new agent to the selected agents set
+        setSelectedAgentsForStart(prev => new Set([...prev, formattedName]))
+        
+        // Reload agents list
         loadExistingAgents()
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to create agent' })
@@ -286,6 +301,13 @@ function App() {
       if (selectedAgent?.name === agent.name) {
         setSelectedAgent(null)
       }
+      
+      // Remove from selected agents set
+      setSelectedAgentsForStart(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(agent.name)
+        return newSet
+      })
 
       // Refresh the agent list
       await loadExistingAgents()
@@ -461,6 +483,9 @@ ${command}`
       setAgentSuggestions([])
       setShowImportModal(false)
       
+      // Add all new agents to the selected agents set
+      setSelectedAgentsForStart(prev => new Set([...prev, ...createdAgents]))
+      
       // Refresh agent list
       await loadExistingAgents()
     } catch (error) {
@@ -538,6 +563,417 @@ ${command}`
     }
   }
 
+  // Edit agent functionality
+  const startEditingAgent = (agent) => {
+    setEditingAgent(agent)
+    setAgentName(agent.name)
+    setAgentDescription(agent.description)
+    // Load the system prompt from the agent file
+    loadAgentSystemPrompt(agent)
+  }
+
+  const loadAgentSystemPrompt = async (agent) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/get-agent-content/${encodeURIComponent(projectDir)}/${agent.name}`)
+      const data = await response.json()
+      if (data.systemPrompt) {
+        setSystemPrompt(data.systemPrompt)
+      }
+    } catch (error) {
+      console.error('Failed to load agent system prompt:', error)
+    }
+  }
+
+  const saveEditedAgent = async () => {
+    if (!projectDir || !editingAgent || !agentName || !agentDescription || !systemPrompt) {
+      setMessage({ type: 'error', text: 'Please fill in all fields' })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch('http://localhost:3001/api/update-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          directory: projectDir,
+          oldName: editingAgent.name,
+          newName: formatAgentName(agentName), 
+          description: agentDescription,
+          systemPrompt
+        })
+      })
+      
+      const data = await response.json()
+      if (data.success) {
+        setMessage({ type: 'success', text: 'Agent updated successfully!' })
+        setEditingAgent(null)
+        setAgentName('')
+        setAgentDescription('')
+        setSystemPrompt('')
+        setShowCreateForm(false)
+        loadExistingAgents()
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to update agent' })
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to connect to server' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const cancelEdit = () => {
+    setEditingAgent(null)
+    setAgentName('')
+    setAgentDescription('')
+    setSystemPrompt('')
+    setShowCreateForm(false)
+  }
+
+  // Agent templates - loaded from backend
+  const [agentTemplates, setAgentTemplates] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+
+  // Load templates from backend
+  const loadTemplates = async () => {
+    setTemplatesLoading(true)
+    try {
+      const response = await fetch('http://localhost:3001/api/agent-templates')
+      const data = await response.json()
+      if (data.templates) {
+        setAgentTemplates(data.templates)
+      }
+    } catch (error) {
+      console.error('Failed to load templates:', error)
+      setMessage({ type: 'error', text: 'Failed to load templates' })
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  const [viewingTemplate, setViewingTemplate] = useState(null)
+  const [showTechStackModal, setShowTechStackModal] = useState(false) // Added for tech stack modal
+  const [availableTechnologies, setAvailableTechnologies] = useState([]) // Added for available technologies
+  const [commonStacks, setCommonStacks] = useState({}) // Added for common tech stacks
+  const [globalTechStack, setGlobalTechStack] = useState([]) // Added for global tech stack
+  const [selectedTechnologies, setSelectedTechnologies] = useState([]) // Added for current selection
+  const [searchQuery, setSearchQuery] = useState('') // Added for search input
+  const [techStackLoading, setTechStackLoading] = useState(false) // Added for loading state
+
+  const useTemplate = async (template) => {
+    // Confirm with user before creating agent
+    if (!confirm(`Create agent "${template.name}" from template? This will immediately create the agent with the template's configuration.`)) {
+      return
+    }
+    
+    setAgentName(template.name)
+    setAgentDescription(template.description)
+    setSystemPrompt(template.systemPrompt)
+    setShowTemplatesModal(false)
+    
+    // Automatically create the agent after a short delay
+    setTimeout(async () => {
+      try {
+        setLoading(true)
+        setMessage({ type: 'info', text: `Creating agent from template "${template.name}"...` })
+        
+        // Create the agent using the existing createAgent logic
+        const formattedName = formatAgentName(template.name)
+        
+        // Create enhanced system prompt with status tracking
+        const enhancedSystemPrompt = `${template.systemPrompt}
+
+## Status Tracking
+
+You have a status file at .claude/agents-status/${formattedName}-status.md that you should update regularly.
+
+Use the following format for your status file:
+
+\`\`\`markdown
+---
+agent: ${formattedName}
+last_updated: YYYY-MM-DD HH:MM:SS
+status: active|completed|blocked
+---
+
+# Current Plan
+
+[Describe your current approach and strategy]
+
+# Todo List
+
+- [ ] Task 1 description
+- [x] Completed task
+- [ ] Task 3 description
+
+# Progress Updates
+
+## YYYY-MM-DD HH:MM:SS
+[Describe what you accomplished and any blockers]
+
+## YYYY-MM-DD HH:MM:SS
+[Another update]
+\`\`\`
+
+Always update this file when:
+1. Starting a new task
+2. Completing significant work
+3. Encountering blockers
+4. Changing your approach`;
+
+        const content = `---
+name: ${formattedName}
+description: ${template.description}
+---
+
+${enhancedSystemPrompt}
+`;
+
+        const response = await fetch('http://localhost:3001/api/create-agent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            directory: projectDir,
+            name: formattedName,
+            description: template.description,
+            systemPrompt: enhancedSystemPrompt
+          })
+        })
+
+        const data = await response.json()
+        
+        if (data.success) {
+          setMessage({ type: 'success', text: `Agent "${formattedName}" created successfully from template!` })
+          // Clear form and reload agents
+          setAgentName('')
+          setAgentDescription('')
+          setSystemPrompt('')
+          setShowCreateForm(false)
+          
+          // Add the new agent to the selected agents set
+          setSelectedAgentsForStart(prev => new Set([...prev, formattedName]))
+          
+          // Reload agents list
+          loadExistingAgents()
+        } else {
+          setMessage({ type: 'error', text: data.error || 'Failed to create agent from template' })
+        }
+      } catch (error) {
+        console.error('Error creating agent from template:', error)
+        setMessage({ type: 'error', text: 'Failed to create agent from template' })
+      } finally {
+        setLoading(false)
+      }
+    }, 500) // Small delay to show the loading message
+  }
+
+  const viewTemplate = (template) => {
+    setViewingTemplate(template)
+  }
+
+  const saveAsTemplate = async () => {
+    if (!agentName || !agentDescription || !systemPrompt) {
+      setMessage({ type: 'error', text: 'Please fill in all fields before saving as template' })
+      return
+    }
+
+    const newTemplate = {
+      name: agentName,
+      description: agentDescription,
+      systemPrompt: systemPrompt
+    }
+
+    const updatedTemplates = [...customTemplates, newTemplate]
+    setCustomTemplates(updatedTemplates)
+    localStorage.setItem('customAgentTemplates', JSON.stringify(updatedTemplates))
+    setMessage({ type: 'success', text: 'Template saved successfully!' })
+  }
+
+  const deleteTemplate = (index) => {
+    const updatedTemplates = customTemplates.filter((_, i) => i !== index)
+    setCustomTemplates(updatedTemplates)
+    localStorage.setItem('customAgentTemplates', JSON.stringify(updatedTemplates))
+    setMessage({ type: 'success', text: 'Template deleted successfully!' })
+  }
+
+  // Task reordering functionality
+  const handleTaskDragStart = (e, agent, taskIndex) => {
+    setDraggedTaskAgent(agent)
+    setDraggedTaskIndex(taskIndex)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleTaskDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleTaskDrop = async (e, targetAgent, targetIndex) => {
+    e.preventDefault()
+    
+    if (!draggedTaskAgent || draggedTaskIndex === null) return
+
+    const draggedTask = draggedTaskAgent.tasks[draggedTaskIndex]
+    
+    try {
+      // Remove task from source agent
+      const sourceTasks = draggedTaskAgent.tasks.filter((_, index) => index !== draggedTaskIndex)
+      await updateAgentTasks(draggedTaskAgent, sourceTasks)
+
+      // Add task to target agent
+      const targetTasks = [...targetAgent.tasks]
+      targetTasks.splice(targetIndex, 0, draggedTask)
+      await updateAgentTasks(targetAgent, targetTasks)
+
+      setMessage({ type: 'success', text: 'Task moved successfully!' })
+    } catch (error) {
+      console.error('Error moving task:', error)
+      setMessage({ type: 'error', text: 'Failed to move task' })
+    } finally {
+      setDraggedTaskAgent(null)
+      setDraggedTaskIndex(null)
+    }
+  }
+
+  const updateAgentTasks = async (agent, tasks) => {
+    const encodedDir = encodeURIComponent(projectDir)
+    const response = await fetch(`http://localhost:3001/api/update-agent-tasks/${encodedDir}/${agent.name}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to update tasks')
+    }
+  }
+
+  const reorderTasks = async (agent, newOrder) => {
+    try {
+      const reorderedTasks = newOrder.map(index => agent.tasks[index])
+      await updateAgentTasks(agent, reorderedTasks)
+      await loadExistingAgents()
+      setMessage({ type: 'success', text: 'Tasks reordered successfully!' })
+    } catch (error) {
+      console.error('Error reordering tasks:', error)
+      setMessage({ type: 'error', text: 'Failed to reorder tasks' })
+    }
+  }
+
+  // Tech Stack Functions
+
+  // Load tech stack technologies and common stacks
+  const loadTechStackData = async () => {
+    try {
+      setTechStackLoading(true)
+      const response = await fetch('http://localhost:3001/api/tech-stack/technologies')
+      const data = await response.json()
+      setAvailableTechnologies(data.technologies || [])
+      setCommonStacks(data.commonStacks || {})
+    } catch (error) {
+      console.error('Failed to load tech stack data:', error)
+      setMessage({ type: 'error', text: 'Failed to load tech stack data' })
+    } finally {
+      setTechStackLoading(false)
+    }
+  }
+
+  // Load global tech stack
+  const loadGlobalTechStack = async () => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/tech-stack/global/${encodeURIComponent(projectDir)}`)
+      const data = await response.json()
+      const techArray = Object.values(data.techStack || {}).flat()
+      setGlobalTechStack(techArray)
+      setSelectedTechnologies(techArray)
+    } catch (error) {
+      console.error('Failed to load global tech stack:', error)
+      setMessage({ type: 'error', text: 'Failed to load global tech stack' })
+    }
+  }
+
+  // Save global tech stack
+  const saveGlobalTechStack = async () => {
+    try {
+      setTechStackLoading(true)
+      const response = await fetch('http://localhost:3001/api/tech-stack/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          directory: projectDir,
+          techStack: { technologies: selectedTechnologies }
+        })
+      })
+      
+      const data = await response.json()
+      if (data.success) {
+        setGlobalTechStack(selectedTechnologies)
+        setMessage({ type: 'success', text: 'Global tech stack saved successfully' })
+        setShowTechStackModal(false)
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to save global tech stack' })
+      }
+    } catch (error) {
+      console.error('Error saving global tech stack:', error)
+      setMessage({ type: 'error', text: 'Failed to save global tech stack' })
+    } finally {
+      setTechStackLoading(false)
+    }
+  }
+
+  // Open tech stack modal
+  const openTechStackModal = async () => {
+    setShowTechStackModal(true)
+    await loadTechStackData()
+    await loadGlobalTechStack()
+  }
+
+  // Apply common stack
+  const applyCommonStack = (stackKey) => {
+    const stack = commonStacks[stackKey]
+    if (stack && stack.technologies) {
+      setSelectedTechnologies(stack.technologies)
+    }
+  }
+
+  // Toggle technology selection
+  const toggleTechnology = (technology) => {
+    setSelectedTechnologies(prev => {
+      const index = prev.indexOf(technology)
+      if (index > -1) {
+        return prev.filter(t => t !== technology)
+      } else {
+        return [...prev, technology]
+      }
+    })
+  }
+
+  // Add custom technology
+  const addCustomTechnology = (tech) => {
+    if (!tech.trim()) return
+    
+    const technology = tech.trim()
+    if (!selectedTechnologies.includes(technology) && !availableTechnologies.includes(technology)) {
+      setSelectedTechnologies(prev => [...prev, technology])
+    }
+  }
+
+  // Remove technology
+  const removeTechnology = (technology) => {
+    setSelectedTechnologies(prev => prev.filter(t => t !== technology))
+  }
+
+  // Clear all selections
+  const clearTechStack = () => {
+    setSelectedTechnologies([])
+  }
+
+  // Filter technologies based on search
+  const filteredTechnologies = availableTechnologies.filter(tech =>
+    tech.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
   // Auto-refresh active agents
   useEffect(() => {
     // This useEffect is now redundant as projectDir is set in the initial useEffect
@@ -613,6 +1049,25 @@ ${command}`
       })
   }, [])
 
+  // Load custom templates from localStorage
+  useEffect(() => {
+    const savedTemplates = localStorage.getItem('customAgentTemplates')
+    if (savedTemplates) {
+      try {
+        setCustomTemplates(JSON.parse(savedTemplates))
+      } catch (error) {
+        console.error('Error loading custom templates:', error)
+      }
+    }
+  }, [])
+
+  // Load templates when templates modal is opened
+  useEffect(() => {
+    if (showTemplatesModal) {
+      loadTemplates()
+    }
+  }, [showTemplatesModal])
+
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8">
@@ -638,16 +1093,16 @@ ${command}`
         )}
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Claude Sub-Agent Manager</h1>
+        <div className="mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Claude Sub-Agent Manager</h1>
           
           {/* Auto-detected Directory Info */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
-              <span className="text-sm text-blue-900">
+              <span className="text-sm text-blue-900 break-all">
                 Managing agents in: <span className="font-mono bg-blue-100 px-2 py-0.5 rounded">./.claude/agents/</span>
               </span>
             </div>
@@ -658,11 +1113,12 @@ ${command}`
         {/* Existing Agents */}
         <div>
           {/* View Toggle and Controls */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            {/* View Toggle Buttons */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-3 py-2 rounded-md transition-colors whitespace-nowrap text-sm ${
                   viewMode === 'list'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -672,7 +1128,7 @@ ${command}`
               </button>
               <button
                 onClick={() => setViewMode('dashboard')}
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-3 py-2 rounded-md transition-colors whitespace-nowrap text-sm ${
                   viewMode === 'dashboard'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -682,7 +1138,7 @@ ${command}`
               </button>
               <button
                 onClick={() => setViewMode('tasks')}
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-3 py-2 rounded-md transition-colors whitespace-nowrap text-sm ${
                   viewMode === 'tasks'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -691,11 +1147,13 @@ ${command}`
                 All Tasks
               </button>
             </div>
-            <div className="flex items-center gap-2">
+            
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
               {selectedAgentsForStart.size > 0 && (viewMode === 'list' || viewMode === 'tasks') && (
                 <button
                   onClick={generateBatchStartCommand}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm whitespace-nowrap"
                 >
                   {viewMode === 'tasks' ? 'Copy Sequential Command' : `Start ${selectedAgentsForStart.size} Selected`}
                 </button>
@@ -703,40 +1161,58 @@ ${command}`
               <button
                 onClick={() => setShowCreateForm(true)}
                 disabled={!projectDir}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm whitespace-nowrap"
               >
                 Create New Agent
               </button>
               <button
+                onClick={() => setShowTemplatesModal(true)}
+                disabled={!projectDir}
+                className="px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+              >
+                Templates
+              </button>
+              <button
+                onClick={openTechStackModal}
+                disabled={!projectDir}
+                className="px-3 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+              >
+                Tech Stack
+              </button>
+              <button
                 onClick={() => setShowImportModal(true)}
                 disabled={!projectDir}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm whitespace-nowrap"
               >
-                Import Agents
+                Import
               </button>
               <button
                 onClick={() => {
                   loadExistingAgents()
                   loadAllAgentStatuses()
                 }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                className="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm whitespace-nowrap"
               >
                 Refresh
               </button>
-              {Object.values(agentStatuses).some(s => s.status !== 'completed') && (
-                <span className="text-sm text-green-600">
-                  ⟳ Auto-refreshing every 10s
-                </span>
-              )}
             </div>
           </div>
+          
+          {/* Auto-refresh indicator */}
+          {Object.values(agentStatuses).some(s => s.status !== 'completed') && (
+            <div className="mb-4">
+              <span className="text-sm text-green-600">
+                ⟳ Auto-refreshing every 10s
+              </span>
+            </div>
+          )}
           
           {/* List View */}
           {viewMode === 'list' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1">
                 <h2 className="text-xl font-semibold mb-4">Your Agents</h2>
-                <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
                   {existingAgents.length === 0 ? (
                     <div className="text-center py-8">
                       <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -755,7 +1231,7 @@ ${command}`
                       {existingAgents.map((agent) => (
                           <div 
                             key={agent.name} 
-                            className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                            className={`p-3 sm:p-4 border-2 rounded-lg cursor-pointer transition-all ${
                               selectedAgent?.name === agent.name 
                                 ? 'border-blue-500 bg-blue-50' 
                                 : 'border-gray-200 hover:border-gray-300'
@@ -768,8 +1244,8 @@ ${command}`
                             <div className="space-y-3">
                               {/* Agent Header */}
                               <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                                     <input
                                       type="checkbox"
                                       checked={selectedAgentsForStart.has(agent.name)}
@@ -778,11 +1254,11 @@ ${command}`
                                         toggleAgentSelection(agent.name)
                                       }}
                                       onClick={(e) => e.stopPropagation()}
-                                      className="w-4 h-4 text-blue-600 rounded"
+                                      className="w-4 h-4 text-blue-600 rounded flex-shrink-0"
                                     />
-                                    <h3 className="font-semibold text-gray-900">{agent.name}</h3>
+                                    <h3 className="font-semibold text-gray-900 truncate">{agent.name}</h3>
                                     {agentStatuses[agent.name] && (
-                                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
                                         agentStatuses[agent.name].status === 'active' ? 'bg-green-100 text-green-800' :
                                         agentStatuses[agent.name].status === 'completed' ? 'bg-blue-100 text-blue-800' :
                                         agentStatuses[agent.name].status === 'blocked' ? 'bg-red-100 text-red-800' :
@@ -792,27 +1268,41 @@ ${command}`
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-sm text-gray-600 mt-1">{agent.description}</p>
+                                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">{agent.description}</p>
                                 </div>
                                 
-                                {/* Delete Button */}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    deleteAgent(agent)
-                                  }}
-                                  className="text-red-600 hover:text-red-700 p-1"
-                                  title="Delete agent"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      startEditingAgent(agent)
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700 p-1"
+                                    title="Edit agent"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      deleteAgent(agent)
+                                    }}
+                                    className="text-red-600 hover:text-red-700 p-1"
+                                    title="Delete agent"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </div>
                               
                               {/* Tasks Section - More Prominent */}
-                              <div className="bg-gray-50 rounded-lg p-4">
-                                <div className="flex items-center justify-between mb-3">
+                              <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                                   <h4 className="font-semibold text-gray-900 flex items-center gap-2">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -824,18 +1314,19 @@ ${command}`
                                       e.stopPropagation()
                                       setShowTaskInput({ ...showTaskInput, [agent.name]: !showTaskInput[agent.name] })
                                     }}
-                                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
+                                    className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
                                   >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                     </svg>
-                                    Add Task
+                                    <span className="hidden sm:inline">Add Task</span>
+                                    <span className="sm:hidden">Add</span>
                                   </button>
                                 </div>
                                 
                                 {/* Task Input */}
                                 {showTaskInput[agent.name] && (
-                                  <div className="mb-3 flex gap-2">
+                                  <div className="mb-3 flex flex-col sm:flex-row gap-2">
                                     <input
                                       type="text"
                                       value={newTask[agent.name] || ''}
@@ -851,25 +1342,27 @@ ${command}`
                                       onClick={(e) => e.stopPropagation()}
                                       autoFocus
                                     />
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        addTaskToAgent(agent)
-                                      }}
-                                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-                                    >
-                                      Add
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setShowTaskInput({ ...showTaskInput, [agent.name]: false })
-                                        setNewTask({ ...newTask, [agent.name]: '' })
-                                      }}
-                                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
-                                    >
-                                      Cancel
-                                    </button>
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          addTaskToAgent(agent)
+                                        }}
+                                        className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                                      >
+                                        Add
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setShowTaskInput({ ...showTaskInput, [agent.name]: false })
+                                          setNewTask({ ...newTask, [agent.name]: '' })
+                                        }}
+                                        className="px-3 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                                 
@@ -877,23 +1370,32 @@ ${command}`
                                 {agent.tasks && agent.tasks.length > 0 ? (
                                   <div className="space-y-2">
                                     {agent.tasks.map((task, index) => (
-                                      <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
-                                        <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-semibold">
+                                      <div 
+                                        key={index} 
+                                        className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200 cursor-move hover:bg-gray-50 transition-colors"
+                                        draggable
+                                        onDragStart={(e) => handleTaskDragStart(e, agent, index)}
+                                        onDragOver={handleTaskDragOver}
+                                        onDrop={(e) => handleTaskDrop(e, agent, index)}
+                                      >
+                                        <div className="w-5 h-5 sm:w-6 sm:h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0">
                                           {index + 1}
                                         </div>
-                                        <span className="flex-1 text-gray-700">{task}</span>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            removeTaskFromAgent(agent, index)
-                                          }}
-                                          className="text-red-600 hover:text-red-700 p-1"
-                                          title="Remove task"
-                                        >
-                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                          </svg>
-                                        </button>
+                                        <span className="flex-1 text-gray-700 text-sm sm:text-base break-words">{task}</span>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              removeTaskFromAgent(agent, index)
+                                            }}
+                                            className="text-red-600 hover:text-red-700 p-1"
+                                            title="Remove task"
+                                          >
+                                            <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                          </button>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -1479,16 +1981,22 @@ ${command}`
           )}
         </div>
 
-        {/* Create Agent Modal */}
-        {showCreateForm && (
+        {/* Create/Edit Agent Modal */}
+        {(showCreateForm || editingAgent) && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold text-gray-900">Create New Agent</h2>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {editingAgent ? 'Edit Agent' : 'Create New Agent'}
+                  </h2>
                   <button
                     onClick={() => {
-                      setShowCreateForm(false)
+                      if (editingAgent) {
+                        cancelEdit()
+                      } else {
+                        setShowCreateForm(false)
+                      }
                       setMessage({ type: '', text: '' })
                     }}
                     className="text-gray-400 hover:text-gray-600"
@@ -1550,30 +2058,53 @@ ${command}`
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-4">
-                  <button
-                    onClick={generateWithClaude}
-                    disabled={loading || !agentName || !agentDescription}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Generating...' : 'Generate with Claude'}
-                  </button>
+                <div className="flex flex-wrap gap-4">
+                  {!editingAgent && (
+                    <>
+                      <button
+                        onClick={generateWithClaude}
+                        disabled={loading || !agentName || !agentDescription}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                      >
+                        {loading ? 'Generating...' : 'Generate with Claude'}
+                      </button>
+                      
+                      <button
+                        onClick={enhancePrompt}
+                        disabled={loading || !systemPrompt}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                      >
+                        {loading ? 'Enhancing...' : 'Enhance Prompt'}
+                      </button>
+                    </>
+                  )}
                   
                   <button
-                    onClick={enhancePrompt}
-                    disabled={loading || !systemPrompt}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Enhancing...' : 'Enhance Prompt'}
-                  </button>
-                  
-                  <button
-                    onClick={createAgent}
+                    onClick={editingAgent ? saveEditedAgent : createAgent}
                     disabled={loading || !projectDir || !agentName || !agentDescription || !systemPrompt}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
                   >
-                    {loading ? 'Creating...' : 'Create Sub-Agent'}
+                    {loading ? (editingAgent ? 'Saving...' : 'Creating...') : (editingAgent ? 'Save Changes' : 'Create Sub-Agent')}
                   </button>
+                  
+                  {!editingAgent && (
+                    <button
+                      onClick={saveAsTemplate}
+                      disabled={!agentName || !agentDescription || !systemPrompt}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                    >
+                      Save as Template
+                    </button>
+                  )}
+                  
+                  {editingAgent && (
+                    <button
+                      onClick={cancelEdit}
+                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
 
                 {/* Message Display in Modal */}
@@ -1586,6 +2117,125 @@ ${command}`
                     <pre className="whitespace-pre-wrap font-sans">{message.text}</pre>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Templates Modal */}
+        {showTemplatesModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-gray-900">Agent Templates</h2>
+                  <button
+                    onClick={() => setShowTemplatesModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Built-in Templates */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Built-in Templates</h3>
+                    {templatesLoading ? (
+                      <div className="text-center py-8">
+                        <svg className="animate-spin h-8 w-8 mx-auto text-blue-600 mb-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p className="text-gray-600">Loading templates...</p>
+                      </div>
+                    ) : agentTemplates.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <svg className="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p>No templates available</p>
+                        <p className="text-sm">Templates will be loaded from the agent-templates directory</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {agentTemplates.map((template, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold text-gray-900 capitalize">{template.name}</h4>
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                                {template.category}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-3">{template.description}</p>
+                            <div className="flex justify-between items-center">
+                              <div className="text-xs text-gray-500">
+                                <strong>Focus:</strong> {template.category === 'Development' ? 'AI-proof coding practices' : template.category === 'Design' ? 'Human-centered design' : template.category === 'Testing' ? 'Quality assurance practices' : 'Best practices'}
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => viewTemplate(template)}
+                                  className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
+                                >
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => useTemplate(template)}
+                                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                                >
+                                  Create Agent
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Templates */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Custom Templates</h3>
+                    {customTemplates.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <svg className="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p>No custom templates yet</p>
+                        <p className="text-sm">Create an agent and save it as a template to see it here</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {customTemplates.map((template, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold text-gray-900">{template.name}</h4>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => useTemplate(template)}
+                                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                                >
+                                  Create Agent
+                                </button>
+                                <button
+                                  onClick={() => deleteTemplate(index)}
+                                  className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-sm text-gray-600">{template.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1797,6 +2447,271 @@ ${command}`
                       </>
                     )}
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tech Stack Modal */}
+        {showTechStackModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-gray-900">Tech Stack Configuration</h2>
+                  <button
+                    onClick={() => setShowTechStackModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mt-2">
+                  Configure the global tech stack for this project. Agents will use this as a reference.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {techStackLoading ? (
+                  <div className="text-center py-8">
+                    <svg className="animate-spin h-8 w-8 mx-auto text-blue-600 mb-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-gray-600">Loading tech stack data...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Common Stacks */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Start - Common Stacks</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {Object.entries(commonStacks).map(([key, stack]) => (
+                          <button
+                            key={key}
+                            onClick={() => applyCommonStack(key)}
+                            className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"
+                          >
+                            <h4 className="font-semibold text-gray-900 mb-1">{stack.name}</h4>
+                            <p className="text-sm text-gray-600 mb-2">{stack.description}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {stack.technologies.slice(0, 6).map(tech => (
+                                <span key={tech} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                                  {tech}
+                                </span>
+                              ))}
+                              {stack.technologies.length > 6 && (
+                                <span className="text-xs text-gray-500">+{stack.technologies.length - 6} more</span>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Search and Add */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Search & Add Technologies</h3>
+                      <div className="space-y-4">
+                        {/* Search Input */}
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search technologies..."
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          {searchQuery && (
+                            <button
+                              onClick={() => setSearchQuery('')}
+                              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Search Results */}
+                        {searchQuery && (
+                          <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
+                            {filteredTechnologies.length === 0 ? (
+                              <div className="p-4 text-center text-gray-500">
+                                <p>No technologies found for "{searchQuery}"</p>
+                                <button
+                                  onClick={() => addCustomTechnology(searchQuery)}
+                                  className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
+                                >
+                                  Add "{searchQuery}" as custom technology
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="p-2">
+                                {filteredTechnologies.map(tech => {
+                                  const isSelected = selectedTechnologies.includes(tech)
+                                  return (
+                                    <button
+                                      key={tech}
+                                      onClick={() => toggleTechnology(tech)}
+                                      className={`w-full text-left px-3 py-2 rounded hover:bg-gray-50 flex items-center gap-2 ${
+                                        isSelected ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        readOnly
+                                        className="w-4 h-4 text-blue-600 rounded"
+                                      />
+                                      <span className="text-sm">{tech}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Selected Technologies */}
+                    <div>
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-gray-900">Selected Technologies</h3>
+                        {selectedTechnologies.length > 0 && (
+                          <button
+                            onClick={clearTechStack}
+                            className="text-sm text-red-600 hover:text-red-700"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      
+                      {selectedTechnologies.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <svg className="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                          <p>No technologies selected</p>
+                          <p className="text-sm">Choose from common stacks or search for technologies</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedTechnologies.map(tech => (
+                            <span
+                              key={tech}
+                              className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm"
+                            >
+                              {tech}
+                              <button
+                                onClick={() => removeTechnology(tech)}
+                                className="text-blue-600 hover:text-blue-800 ml-1"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t bg-gray-50">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-600">
+                    {selectedTechnologies.length > 0 ? (
+                      <span>{selectedTechnologies.length} technologies selected</span>
+                    ) : (
+                      <span>No technologies selected</span>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowTechStackModal(false)}
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={saveGlobalTechStack}
+                      disabled={techStackLoading}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {techStackLoading ? 'Saving...' : 'Save Tech Stack'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Template View Modal */}
+        {viewingTemplate && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-gray-900">Template: {viewingTemplate.name}</h2>
+                  <button
+                    onClick={() => setViewingTemplate(null)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="mt-2 text-sm text-gray-600">
+                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                    {viewingTemplate.category}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="space-y-6">
+                  {/* Template Details */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Description</h3>
+                    <p className="text-gray-700">{viewingTemplate.description}</p>
+                  </div>
+
+                  {/* System Prompt */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">System Prompt</h3>
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans overflow-x-auto">
+                        {viewingTemplate.systemPrompt}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t bg-gray-50">
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setViewingTemplate(null)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await useTemplate(viewingTemplate)
+                      setViewingTemplate(null)
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Create Agent
+                  </button>
                 </div>
               </div>
             </div>
