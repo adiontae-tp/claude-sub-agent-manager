@@ -6,11 +6,14 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 
 - **🤖 AI-Powered Agent Generation** - Use Claude to automatically generate sub-agent configurations
 - **📦 Bulk Import** - Create multiple agents from project documentation or requirements
-- **📊 Dashboard View** - Monitor all agent tasks and progress in one place
-- **🔄 Auto-Refresh** - Automatically updates status for active agents
-- **✏️ Status Tracking** - Agents can update their progress in real-time
+- **📊 Enhanced Dashboard** - Comprehensive project overview with metrics and progress tracking
+- **🎯 Task Management** - Assign specific tasks to agents and track their completion
+- **🔄 All Tasks View** - Drag-and-drop reordering of tasks across agents with sequential execution
+- **📈 Status Tracking** - Real-time progress updates with structured status files
+- **🔄 Auto-Refresh** - Automatically updates status for active agents every 10 seconds
 - **🎯 Batch Operations** - Start multiple agents with a single command
 - **🗑️ Easy Management** - Edit, delete, and organize your sub-agents
+- **📱 Modern UI** - Clean, responsive interface with collapsible sections and toast notifications
 
 ## 🚀 Quick Start
 
@@ -34,7 +37,7 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
    ```
 
 4. **Open in browser:**
-   Navigate to `http://localhost:5173`
+   Navigate to `http://localhost:5173` (or the port shown in terminal)
 
 The tool will automatically manage agents in its own `.claude/agents/` directory.
 
@@ -61,6 +64,7 @@ claude-sub-agent-manager/
 3. Use "Generate with Claude" to create an AI-powered system prompt
 4. Review and edit the prompt
 5. Click "Create Agent"
+6. **Add Tasks** - Assign specific tasks to the agent for focused execution
 
 ### Importing Multiple Agents
 
@@ -72,10 +76,18 @@ claude-sub-agent-manager/
 
 ### Managing Agents
 
-- **List View** - See all agents with their status and task progress
-- **Dashboard View** - Monitor all tasks across all agents
-- **Start Agents** - Select multiple agents and generate a batch start command
+- **List View** - See all agents with their assigned tasks and status progress
+- **Dashboard View** - Comprehensive overview with metrics, agent status, and task progress
+- **All Tasks View** - Reorder tasks across selected agents for sequential execution
+- **Start Agents** - Generate commands for individual or batch agent execution
 - **Delete** - Remove agents you no longer need
+
+### Task Management
+
+- **Assign Tasks** - Add specific tasks to each agent after creation
+- **Task Tracking** - Monitor both assigned tasks and status tracking tasks
+- **Sequential Execution** - Use "All Tasks View" to reorder tasks and generate sequential commands
+- **Command Generation** - Automatic generation of Claude Code commands with task details
 
 ## 🛠️ Sub-Agent File Structure
 
@@ -85,6 +97,10 @@ Each sub-agent is stored as a Markdown file with YAML frontmatter:
 ---
 name: frontend-developer
 description: Handles all frontend development tasks
+tasks:
+  - Build the user dashboard
+  - Implement authentication system
+  - Add responsive design
 ---
 
 You are a frontend development specialist...
@@ -118,6 +134,30 @@ Working on implementing the user dashboard...
 Created initial component structure...
 ```
 
+## 🎯 Command Generation
+
+The tool generates Claude Code commands in the correct format:
+
+**Single Agent:**
+```
+Use the frontend-developer sub agent to build the user dashboard and implement authentication system
+```
+
+**Multiple Agents (Sequential):**
+```
+Use the project-manager sub agent to coordinate the sprint and priorities, then use the frontend-developer sub agent to build the user dashboard, then use the backend-developer sub agent to implement the API endpoints
+```
+
+## 📊 Dashboard Features
+
+The enhanced dashboard provides:
+
+- **Key Metrics** - Total agents, assigned tasks, active agents, progress percentage
+- **Agent Overview** - Individual agent cards with status, task counts, and progress
+- **Task Progress** - Visual progress bars for status tracking tasks
+- **Recent Activity** - Assigned tasks and status tracking tasks
+- **Quick Actions** - Direct navigation to other views and features
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -134,6 +174,15 @@ PORT=3001
 - `.txt` - Plain text files
 - `.md` - Markdown documentation
 - `.json` - Structured project data
+
+## 🎨 UI Features
+
+- **Collapsible Sections** - Save space with expandable/collapsible cards
+- **Toast Notifications** - Non-intrusive alerts that auto-dismiss
+- **Drag-and-Drop** - Reorder tasks in the All Tasks view
+- **Auto-Refresh** - Automatic status updates for active agents
+- **Responsive Design** - Works on desktop and mobile devices
+- **Modern Styling** - Clean, professional interface with Tailwind CSS
 
 ## 🤝 Contributing
 
