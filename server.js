@@ -75,18 +75,20 @@ const db = new sqlite3.Database(dbPath, (err) => {
 // Initialize Anthropic client
 const config = getConfig();
 const apiKey = process.env.ANTHROPIC_API_KEY || config.apiKey;
+const offlineMode = config.offlineMode || !apiKey;
 
-if (!apiKey) {
+if (!apiKey && !offlineMode) {
   console.warn('\n⚠️  Warning: No Anthropic API key found!');
-  console.warn('Please set your API key using one of these methods:');
+  console.warn('Running in OFFLINE MODE - AI features disabled');
+  console.warn('To enable AI features, set your API key using one of these methods:');
   console.warn('1. Environment variable: export ANTHROPIC_API_KEY="your-key"');
   console.warn('2. Config file: Add "apiKey" to .claude-agents.json');
   console.warn('3. .env file: Create .env with ANTHROPIC_API_KEY=your-key\n');
+} else if (offlineMode) {
+  console.log('✓ Running in OFFLINE MODE (AI features disabled)');
 }
 
-const anthropic = new Anthropic({
-  apiKey: apiKey,
-});
+const anthropic = apiKey ? new Anthropic({ apiKey: apiKey }) : null;
 
 const app = express();
 
@@ -248,8 +250,45 @@ app.get('/api/list-agents/:encodedDir', async (req, res) => {
 app.post('/api/generate-agent', async (req, res) => {
   const { name, description } = req.body;
   
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured in .env file' });
+  // Check if we're in offline mode
+  if (offlineMode || !anthropic) {
+    // Use offline templates
+    try {
+      const templates = JSON.parse(fsSync.readFileSync(path.join(__dirname, 'offline-templates.json'), 'utf8')).templates;
+      
+      // Find best matching template based on name/description
+      const searchTerms = `${name} ${description}`.toLowerCase();
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (const [key, template] of Object.entries(templates)) {
+        const templateTerms = `${template.name} ${template.description}`.toLowerCase();
+        const score = searchTerms.split(' ').filter(term => templateTerms.includes(term)).length;
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = template;
+        }
+      }
+      
+      if (bestMatch) {
+        // Customize the template with the provided name
+        const customPrompt = bestMatch.systemPrompt.replace(bestMatch.name, name);
+        return res.json({ 
+          systemPrompt: customPrompt,
+          offlineMode: true,
+          message: 'Generated from offline template (AI features disabled)'
+        });
+      } else {
+        // Return a generic template
+        return res.json({ 
+          systemPrompt: `You are a ${name} specialist.\n\n${description}\n\nApproach tasks systematically and provide clear, actionable solutions.`,
+          offlineMode: true,
+          message: 'Generated basic template (AI features disabled)'
+        });
+      }
+    } catch (error) {
+      return res.status(500).json({ error: 'Failed to load offline templates' });
+    }
   }
   
   try {
@@ -296,8 +335,23 @@ Return ONLY the system prompt text (no markdown formatting, no explanations).`;
 app.post('/api/enhance-prompt', async (req, res) => {
   const { currentPrompt, name, description } = req.body;
   
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured in .env file' });
+  // In offline mode, provide enhancement tips instead
+  if (offlineMode || !anthropic) {
+    const tips = [
+      "Add specific responsibilities and tasks",
+      "Include best practices for the role",
+      "Define clear success criteria",
+      "Add examples of expected outputs",
+      "Include collaboration guidelines",
+      "Specify tools and technologies to use"
+    ];
+    
+    return res.json({
+      systemPrompt: currentPrompt,
+      offlineMode: true,
+      message: "AI enhancement unavailable in offline mode",
+      tips: tips
+    });
   }
   
   try {
@@ -1675,10 +1729,15 @@ const PORT = process.env.PORT || 3001;
 // Start server
 const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  if (!apiKey) {
-    console.log(`⚠️  No API key found - agent features will not work`);
+  if (offlineMode) {
+    console.log(`✓ Running in OFFLINE MODE - no API credits needed`);
+    console.log(`  - Manual agent creation: ✓ Available`);
+    console.log(`  - Task management: ✓ Available`);
+    console.log(`  - AI generation: ✗ Disabled`);
+  } else if (!apiKey) {
+    console.log(`⚠️  No API key found - running in OFFLINE MODE`);
   } else {
-    console.log(`✓ Anthropic API key configured`);
+    console.log(`✓ Anthropic API key configured - all features enabled`);
   }
 });
 

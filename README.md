@@ -120,6 +120,32 @@ your-project/
 └── ...
 ```
 
+## 🆓 Offline Mode (No API Credits Required!)
+
+The tool now supports **Offline Mode** - use it without any Anthropic API credits:
+
+### Features Available in Offline Mode:
+- ✅ Manual agent creation
+- ✅ Task management and tracking
+- ✅ Terminal integration
+- ✅ Agent templates (Frontend, Backend, QA, DevOps, UI/UX)
+- ✅ Copy prompts to clipboard
+- ✅ All organizational features
+
+### Features Requiring API Credits:
+- ❌ AI-powered agent generation
+- ❌ Automatic prompt enhancement
+- ❌ Bulk import from requirements
+
+### To Enable Offline Mode:
+Simply don't set an API key, or add to your `.claude-agents.json`:
+```json
+{
+  "projectName": "My Project",
+  "offlineMode": true
+}
+```
+
 ## 💰 Cost Optimization
 
 To reduce API costs, the tool now uses Claude 3 Haiku by default, which is much cheaper than Sonnet. You can configure this in your `.claude-agents.json`:
