@@ -83,15 +83,15 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Serve static frontend files
+const staticPath = path.join(__dirname, 'static');
 const frontendPath = path.join(__dirname, 'frontend', 'dist');
-if (fsSync.existsSync(frontendPath)) {
+
+if (fsSync.existsSync(staticPath)) {
+  // Use static folder (for npm package)
+  app.use(express.static(staticPath));
+} else if (fsSync.existsSync(frontendPath)) {
+  // Use frontend/dist (for development)
   app.use(express.static(frontendPath));
-} else {
-  // Fallback for development
-  const devFrontendPath = path.join(__dirname, 'frontend', 'dist');
-  if (fsSync.existsSync(devFrontendPath)) {
-    app.use(express.static(devFrontendPath));
-  }
 }
 
 // Catch-all route to serve index.html for client-side routing
@@ -101,7 +101,11 @@ app.get('*', (req, res, next) => {
     return next();
   }
   
-  const indexPath = path.join(frontendPath, 'index.html');
+  let indexPath = path.join(staticPath, 'index.html');
+  if (!fsSync.existsSync(indexPath)) {
+    indexPath = path.join(frontendPath, 'index.html');
+  }
+  
   if (fsSync.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
