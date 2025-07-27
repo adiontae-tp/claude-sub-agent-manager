@@ -64,8 +64,19 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 // Initialize Anthropic client
+const config = getConfig();
+const apiKey = process.env.ANTHROPIC_API_KEY || config.apiKey;
+
+if (!apiKey) {
+  console.warn('\n⚠️  Warning: No Anthropic API key found!');
+  console.warn('Please set your API key using one of these methods:');
+  console.warn('1. Environment variable: export ANTHROPIC_API_KEY="your-key"');
+  console.warn('2. Config file: Add "apiKey" to .claude-agents.json');
+  console.warn('3. .env file: Create .env with ANTHROPIC_API_KEY=your-key\n');
+}
+
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: apiKey,
 });
 
 const app = express();
@@ -1633,7 +1644,11 @@ const PORT = process.env.PORT || 3001;
 // Start server
 const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Make sure ANTHROPIC_API_KEY is set in your .env file`);
+  if (!apiKey) {
+    console.log(`⚠️  No API key found - agent features will not work`);
+  } else {
+    console.log(`✓ Anthropic API key configured`);
+  }
 });
 
 // Cleanup on server shutdown

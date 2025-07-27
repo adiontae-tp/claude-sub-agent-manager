@@ -65,17 +65,32 @@ This creates a `.claude-agents.json` config file in your project root.
 
 ### 2. Configure your API key
 
-Either set the environment variable:
+Choose one of these methods:
+
+**Method 1: Environment Variable (Recommended for security)**
 ```bash
 export ANTHROPIC_API_KEY="your-api-key-here"
+claude-agents
 ```
 
-Or add it to your config file:
+**Method 2: Config File**
+Add to your `.claude-agents.json`:
 ```json
 {
   "projectName": "My Project",
   "apiKey": "your-api-key-here"
 }
+```
+
+**Method 3: .env File**
+Create a `.env` file in your project root:
+```bash
+echo 'ANTHROPIC_API_KEY=your-api-key-here' > .env
+```
+
+**Method 4: Pass it when running**
+```bash
+ANTHROPIC_API_KEY="your-api-key-here" claude-agents
 ```
 
 ### 3. Start the agent manager
