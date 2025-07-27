@@ -85,8 +85,13 @@ const Terminal = ({
     
     const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their progress using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. As they work (update the number):\n   "Update your progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/progress/50"\n\n4. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
     
-    navigator.clipboard.writeText(fullCommand);
-    if (onCopyCommand) onCopyCommand();
+    try {
+      await navigator.clipboard.writeText(fullCommand);
+      if (onCopyCommand) onCopyCommand();
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      alert('Failed to copy to clipboard. Please try again or manually copy the text.');
+    }
   };
 
   // No need for iframe reloading anymore since we keep all iframes mounted
