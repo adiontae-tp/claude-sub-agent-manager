@@ -9,7 +9,7 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 - **📊 Enhanced Dashboard** - Comprehensive project overview with metrics and progress tracking
 - **🎯 Task Management** - Assign specific tasks to agents and track their completion
 - **🔄 All Tasks View** - Drag-and-drop reordering of tasks across agents with sequential execution
-- **📈 Status Tracking** - Real-time progress updates with structured status files
+- **📈 SQLite Task Tracking** - Reliable, persistent task progress tracking with SQLite database
 - **🔄 Auto-Refresh** - Automatically updates status for active agents every 10 seconds
 - **🎯 Batch Operations** - Start multiple agents with a single command
 - **🗑️ Easy Management** - Edit, delete, and organize your sub-agents
@@ -50,8 +50,10 @@ Claude Sub-Agent Manager stores agents in the same directory where it's installe
 claude-sub-agent-manager/
 ├── .claude/
 │   ├── agents/          # Your sub-agents are stored here
-│   └── agents-status/   # Agent status tracking files
-├── backend/             # Express server
+│   └── tasks/           # Task files (for backward compatibility)
+├── backend/             
+│   ├── server.js        # Express server
+│   └── tasks.db         # SQLite database for task tracking
 ├── frontend/            # React app
 └── other-files/
 ```
@@ -98,6 +100,45 @@ claude-sub-agent-manager/
 - **Session Management** - Start, stop, and monitor terminal sessions
 - **Direct Access** - No authentication required for easy use
 - **Auto Claude Startup** - Start Claude with selected agents directly from terminal
+- **Multiple Terminals** - Create and manage multiple independent terminal tabs
+- **Tab Renaming** - Double-click terminal tabs to rename them
+
+### SQLite Task Tracking
+
+The application now uses SQLite for reliable, persistent task tracking:
+
+#### Benefits
+- **Persistent Storage** - Tasks survive server restarts and page refreshes
+- **Concurrent Updates** - Handles multiple agents updating simultaneously
+- **Real-time Sync** - Changes are immediately reflected across all views
+- **No File Conflicts** - Eliminates race conditions from file-based tracking
+
+#### Agent Task Updates
+
+Agents can update their task progress using simple curl commands:
+
+```bash
+# Mark task as queued (when agent starts working)
+curl -X POST http://localhost:3001/api/task/developer/0/queued/true
+
+# Update task status
+curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress
+
+# Update progress percentage
+curl -X POST http://localhost:3001/api/task/developer/0/progress/50
+
+# Mark task as completed
+curl -X POST http://localhost:3001/api/task/developer/0/status/completed
+```
+
+#### API Endpoints
+
+- `GET /api/task-progress` - Get all task progress
+- `GET /api/task-progress/:agentName` - Get progress for specific agent
+- `POST /api/task-progress/:agentName/:taskIndex` - Update task with JSON body
+- `POST /api/task/:agentName/:taskIndex/:field/:value` - Simple field update
+
+The simplified URL format makes it easy for agents to update their status without complex JSON payloads.
 
 To use the terminal:
 1. Click the **"Terminal"** button in the application header
