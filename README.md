@@ -13,6 +13,7 @@ A powerful CLI tool for managing Claude Code sub-agents in your projects. This t
 - **🔄 All Tasks View** - Drag-and-drop reordering of tasks across agents with sequential execution
 - **📈 SQLite Task Tracking** - Reliable, persistent task progress tracking with SQLite database
 - **🔄 Auto-Refresh** - Automatically updates status for active agents every 10 seconds
+- **🔄 Workflow Templates** - Create reusable task templates that automatically generate tasks for multiple agents
 - **🎯 Batch Operations** - Start multiple agents with a single command
 - **🗑️ Easy Management** - Edit, delete, and organize your sub-agents
 - **📱 Modern UI** - Clean, responsive interface with collapsible sections and toast notifications
@@ -293,6 +294,28 @@ Agents support SQLite-based task tracking with:
 - Subtask management
 - Status updates
 - Batch operations
+
+### Workflow Templates
+
+Create reusable task templates to streamline your development process:
+
+1. **Create a Workflow**
+   - Navigate to the Workflows tab
+   - Click "Create Workflow"
+   - Define tasks with descriptions and agent assignments
+   - Save the workflow for future use
+
+2. **Use Workflows in Task Creation**
+   - When creating tasks, select a workflow template
+   - Tasks from the workflow are automatically added
+   - Customize the tasks before creating them
+
+3. **Example Workflows**
+   - **Design Review**: Designer review → QA review → Documentation update
+   - **Feature Release**: Development → Testing → Code review → Deployment
+   - **Bug Fix**: Reproduce → Fix → Test → Document
+
+Workflows help maintain consistency across your team and ensure no steps are missed in your development process.
 
 ## 🤝 Contributing
 

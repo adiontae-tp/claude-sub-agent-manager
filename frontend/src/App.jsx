@@ -8,6 +8,8 @@ import TechStackModal from './components/TechStackModal';
 import TemplatesModal from './components/TemplatesModal';
 import TaskManager from './components/TaskManager';
 import CreateTaskModal from './components/CreateTaskModal';
+import WorkflowManager from './components/WorkflowManager';
+import WorkflowModal from './components/WorkflowModal';
 
 function App() {
   // State management
@@ -23,7 +25,11 @@ function App() {
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [showTechStackModal, setShowTechStackModal] = useState(false);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+  const [taskModalMode, setTaskModalMode] = useState('create');
+  const [taskModalExistingTasks, setTaskModalExistingTasks] = useState([]);
   const [techStackCount, setTechStackCount] = useState(0);
+  const [showWorkflowModal, setShowWorkflowModal] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState(null);
   
   // Terminal state - now supports multiple terminals
   const [terminals, setTerminals] = useState([]);
@@ -372,10 +378,90 @@ function App() {
     }
   };
 
-  const handleCreateTask = async (agentName, task) => {
-    await addTaskToAgent(agentName, task);
-    // After creating task, switch to task order view
+  const updateAgentTasks = async (agentName, tasks) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/update-agent-tasks/${encodeURIComponent(projectDir)}/${agentName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update tasks');
+      }
+      
+      await loadAgents();
+      setMessage({ type: 'success', text: 'Tasks updated successfully' });
+    } catch (error) {
+      console.error('Failed to update tasks:', error);
+      setMessage({ type: 'error', text: 'Failed to update tasks' });
+    }
+  };
+
+  const handleCreateTask = async (agentNameOrTasksByAgent, taskOrReplaceMode) => {
+    if (typeof agentNameOrTasksByAgent === 'object' && taskOrReplaceMode === true) {
+      // Edit mode - replace all tasks
+      for (const agent of existingAgents) {
+        const newTasks = agentNameOrTasksByAgent[agent.name] || [];
+        await updateAgentTasks(agent.name, newTasks);
+      }
+    } else {
+      // Create mode - add single task
+      await addTaskToAgent(agentNameOrTasksByAgent, taskOrReplaceMode);
+    }
+    // After creating/updating tasks, switch to task order view
     setViewMode('tasks');
+  };
+
+  const handleEditTaskList = (tasks) => {
+    setTaskModalExistingTasks(tasks);
+    setTaskModalMode('edit');
+    setShowCreateTaskModal(true);
+  };
+
+  const handleShowCreateTask = () => {
+    setTaskModalMode('create');
+    setTaskModalExistingTasks([]);
+    setShowCreateTaskModal(true);
+  };
+
+  const handleShowCreateWorkflow = () => {
+    setEditingWorkflow(null);
+    setShowWorkflowModal(true);
+  };
+
+  const handleEditWorkflow = (workflow) => {
+    setEditingWorkflow(workflow);
+    setShowWorkflowModal(true);
+  };
+
+  const handleSaveWorkflow = async (workflowData) => {
+    const encodedDir = encodeURIComponent(projectDir);
+    const method = workflowData.id ? 'PUT' : 'POST';
+    const url = workflowData.id
+      ? `http://localhost:3001/api/workflows/${encodedDir}/${workflowData.id}`
+      : `http://localhost:3001/api/workflows/${encodedDir}`;
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: workflowData.name,
+          description: workflowData.description,
+          tasks: workflowData.tasks
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to save workflow');
+      
+      setMessage({ type: 'success', text: `Workflow ${workflowData.id ? 'updated' : 'created'} successfully` });
+      setShowWorkflowModal(false);
+      setEditingWorkflow(null);
+    } catch (error) {
+      console.error('Error saving workflow:', error);
+      setMessage({ type: 'error', text: 'Failed to save workflow' });
+    }
   };
 
   return (
@@ -389,7 +475,7 @@ function App() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             onShowCreateForm={() => setShowCreateForm(true)}
-            onShowCreateTask={() => setShowCreateTaskModal(true)}
+            onShowCreateTask={handleShowCreateTask}
             onShowTechStack={() => setShowTechStackModal(true)}
             existingAgentsCount={existingAgents.length}
             techStackCount={techStackCount}
@@ -423,24 +509,18 @@ function App() {
                   agents={existingAgents}
                   projectDir={projectDir}
                   onCopyCommand={() => setMessage({ type: 'success', text: 'Claude instructions copied to clipboard!' })}
-                  onUpdateAgentTasks={async (agentName, tasks) => {
-                    try {
-                      const response = await fetch(`http://localhost:3001/api/update-agent-tasks/${encodeURIComponent(projectDir)}/${agentName}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tasks })
-                      });
-                      
-                      if (!response.ok) {
-                        throw new Error('Failed to update tasks');
-                      }
-                      
-                      await loadAgents();
-                    } catch (error) {
-                      setMessage({ type: 'error', text: 'Failed to update tasks' });
-                    }
-                  }}
+                  onEditTaskList={handleEditTaskList}
+                  onUpdateAgentTasks={updateAgentTasks}
                   onRefresh={loadAgents}
+                />
+              )}
+
+              {viewMode === 'workflows' && (
+                <WorkflowManager
+                  projectDir={projectDir}
+                  agents={existingAgents}
+                  onShowCreateWorkflow={handleShowCreateWorkflow}
+                  onEditWorkflow={handleEditWorkflow}
                 />
               )}
 
@@ -500,9 +580,27 @@ function App() {
 
         <CreateTaskModal
           isOpen={showCreateTaskModal}
-          onClose={() => setShowCreateTaskModal(false)}
+          onClose={() => {
+            setShowCreateTaskModal(false);
+            setTaskModalMode('create');
+            setTaskModalExistingTasks([]);
+          }}
           agents={existingAgents}
           onCreateTask={handleCreateTask}
+          mode={taskModalMode}
+          existingTasks={taskModalExistingTasks}
+          projectDir={projectDir}
+        />
+
+        <WorkflowModal
+          isOpen={showWorkflowModal}
+          onClose={() => {
+            setShowWorkflowModal(false);
+            setEditingWorkflow(null);
+          }}
+          agents={existingAgents}
+          onSave={handleSaveWorkflow}
+          existingWorkflow={editingWorkflow}
         />
       </div>
     </div>

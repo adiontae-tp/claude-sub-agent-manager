@@ -61,6 +61,23 @@ const db = new sqlite3.Database(dbPath, (err) => {
       } else {
         console.log('Task progress table ready');
         
+        // Create workflows table
+        db.run(`CREATE TABLE IF NOT EXISTS workflows (
+          id TEXT PRIMARY KEY,
+          project_dir TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          tasks TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+          if (err) {
+            console.error('Error creating workflows table:', err);
+          } else {
+            console.log('Workflows table ready');
+          }
+        });
+        
         // Create index for faster queries
         db.run(`CREATE INDEX IF NOT EXISTS idx_agent_task ON task_progress(agent_name, task_index)`, (err) => {
           if (err) {
@@ -1723,6 +1740,107 @@ app.delete('/api/task-progress', (req, res) => {
     }
     res.json({ success: true, message: 'All task progress cleared' });
   });
+});
+
+// Workflow endpoints
+app.get('/api/workflows/:encodedDir', async (req, res) => {
+  const projectDir = decodeURIComponent(req.params.encodedDir);
+  
+  db.all('SELECT * FROM workflows WHERE project_dir = ? ORDER BY created_at DESC', [projectDir], (err, rows) => {
+    if (err) {
+      console.error('Error fetching workflows:', err);
+      return res.status(500).json({ error: 'Failed to fetch workflows' });
+    }
+    
+    // Parse tasks JSON for each workflow
+    const workflows = rows.map(row => ({
+      ...row,
+      tasks: JSON.parse(row.tasks || '[]')
+    }));
+    
+    res.json(workflows);
+  });
+});
+
+app.post('/api/workflows/:encodedDir', async (req, res) => {
+  const projectDir = decodeURIComponent(req.params.encodedDir);
+  const { name, description, tasks } = req.body;
+  
+  if (!name || !tasks || !Array.isArray(tasks)) {
+    return res.status(400).json({ error: 'Name and tasks array are required' });
+  }
+  
+  const id = `workflow-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  db.run(
+    `INSERT INTO workflows (id, project_dir, name, description, tasks) VALUES (?, ?, ?, ?, ?)`,
+    [id, projectDir, name, description || '', JSON.stringify(tasks)],
+    function(err) {
+      if (err) {
+        console.error('Error creating workflow:', err);
+        return res.status(500).json({ error: 'Failed to create workflow' });
+      }
+      
+      res.json({
+        id,
+        project_dir: projectDir,
+        name,
+        description,
+        tasks,
+        created_at: new Date().toISOString()
+      });
+    }
+  );
+});
+
+app.put('/api/workflows/:encodedDir/:workflowId', async (req, res) => {
+  const projectDir = decodeURIComponent(req.params.encodedDir);
+  const { workflowId } = req.params;
+  const { name, description, tasks } = req.body;
+  
+  if (!name || !tasks || !Array.isArray(tasks)) {
+    return res.status(400).json({ error: 'Name and tasks array are required' });
+  }
+  
+  db.run(
+    `UPDATE workflows SET name = ?, description = ?, tasks = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = ? AND project_dir = ?`,
+    [name, description || '', JSON.stringify(tasks), workflowId, projectDir],
+    function(err) {
+      if (err) {
+        console.error('Error updating workflow:', err);
+        return res.status(500).json({ error: 'Failed to update workflow' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Workflow not found' });
+      }
+      
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/workflows/:encodedDir/:workflowId', async (req, res) => {
+  const projectDir = decodeURIComponent(req.params.encodedDir);
+  const { workflowId } = req.params;
+  
+  db.run(
+    `DELETE FROM workflows WHERE id = ? AND project_dir = ?`,
+    [workflowId, projectDir],
+    function(err) {
+      if (err) {
+        console.error('Error deleting workflow:', err);
+        return res.status(500).json({ error: 'Failed to delete workflow' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Workflow not found' });
+      }
+      
+      res.json({ success: true });
+    }
+  );
 });
 
 const PORT = process.env.PORT || 3001;

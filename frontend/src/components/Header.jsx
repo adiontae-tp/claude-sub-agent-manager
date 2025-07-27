@@ -49,6 +49,16 @@ const Header = ({
           >
             Task Order
           </button>
+          <button
+            onClick={() => onViewModeChange('workflows')}
+            className={`px-3 py-1.5 rounded ${
+              viewMode === 'workflows' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            Workflows
+          </button>
         </div>
 
         {/* Action Buttons */}

@@ -1,10 +1,93 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
-  const [taskRows, setTaskRows] = useState([{ id: Date.now(), description: '', agentName: '' }]);
+const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks = [], mode = 'create', projectDir }) => {
+  const [taskRows, setTaskRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [workflows, setWorkflows] = useState([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState(null);
+  const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
+
+  // Initialize task rows when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (mode === 'edit' && existingTasks.length > 0) {
+        setTaskRows(existingTasks.map((task, index) => ({
+          id: `existing-${index}-${Date.now()}`,
+          description: task.task || task.description || '',
+          agentName: task.agentName || '',
+          originalTask: task
+        })));
+      } else {
+        setTaskRows([{ id: `new-${Date.now()}`, description: '', agentName: '' }]);
+      }
+      setSelectedWorkflow(null);
+      setShowWorkflowPreview(false);
+    }
+  }, [isOpen, mode, existingTasks]);
+
+  // Fetch workflows
+  useEffect(() => {
+    if (isOpen && mode === 'create' && projectDir) {
+      fetchWorkflows();
+    }
+  }, [isOpen, mode, projectDir]);
+
+  const fetchWorkflows = async () => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/workflows/${encodeURIComponent(projectDir)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setWorkflows(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch workflows:', error);
+    }
+  };
+
+  const handleWorkflowSelect = (workflow) => {
+    setSelectedWorkflow(workflow);
+    if (workflow) {
+      // Add workflow tasks to current tasks
+      const workflowTasks = workflow.tasks.map((task, index) => ({
+        id: `workflow-${workflow.id}-${index}-${Date.now()}`,
+        description: task.description,
+        agentName: task.agentName,
+        fromWorkflow: true
+      }));
+      setTaskRows([...taskRows, ...workflowTasks]);
+      setShowWorkflowPreview(true);
+    }
+  };
 
   const handleCreateTasks = async () => {
+    if (mode === 'edit') {
+      // In edit mode, we need to handle updates differently
+      const validTasks = taskRows.filter(row => row.description.trim() && row.agentName);
+      
+      setLoading(true);
+      try {
+        // Group tasks by agent
+        const tasksByAgent = {};
+        validTasks.forEach(task => {
+          if (!tasksByAgent[task.agentName]) {
+            tasksByAgent[task.agentName] = [];
+          }
+          tasksByAgent[task.agentName].push(task.description);
+        });
+
+        // Update all agents' tasks
+        await onCreateTask(tasksByAgent, true); // true indicates replace mode
+        
+        onClose();
+      } catch (error) {
+        console.error('Failed to update tasks:', error);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Original create mode logic
     const validTasks = taskRows.filter(row => row.description.trim() && row.agentName);
     if (validTasks.length === 0) return;
 
@@ -13,7 +96,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
       for (const task of validTasks) {
         await onCreateTask(task.agentName, task.description);
       }
-      setTaskRows([{ id: Date.now(), description: '', agentName: '' }]);
+      setTaskRows([{ id: `new-${Date.now()}`, description: '', agentName: '' }]);
       onClose();
     } catch (error) {
       console.error('Failed to create tasks:', error);
@@ -23,7 +106,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
   };
 
   const addTaskRow = () => {
-    setTaskRows([...taskRows, { id: Date.now(), description: '', agentName: '' }]);
+    setTaskRows([...taskRows, { id: `new-${Date.now()}-${taskRows.length}`, description: '', agentName: '' }]);
   };
 
   const removeTaskRow = (id) => {
@@ -56,7 +139,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         <div className="p-6 border-b">
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-gray-900">Create Task</h2>
+            <h2 className="text-2xl font-bold text-gray-900">{mode === 'edit' ? 'Edit Task List' : 'Create Task'}</h2>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600"
@@ -79,6 +162,53 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Workflow Selection - Only in create mode */}
+              {mode === 'create' && workflows.length > 0 && (
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-blue-900">Use a Workflow Template</h3>
+                    {selectedWorkflow && (
+                      <button
+                        onClick={() => {
+                          setSelectedWorkflow(null);
+                          setTaskRows(taskRows.filter(row => !row.fromWorkflow));
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        Clear Workflow
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {workflows.map((workflow) => (
+                      <button
+                        key={workflow.id}
+                        onClick={() => handleWorkflowSelect(workflow)}
+                        className={`px-3 py-1.5 rounded-md border text-sm transition-all ${
+                          selectedWorkflow?.id === workflow.id
+                            ? 'border-blue-500 bg-blue-100 text-blue-800 font-medium'
+                            : 'border-blue-300 bg-white hover:border-blue-400 text-blue-700'
+                        }`}
+                      >
+                        {workflow.name} ({workflow.tasks.length} tasks)
+                      </button>
+                    ))}
+                  </div>
+                  {selectedWorkflow && showWorkflowPreview && (
+                    <div className="mt-3 p-3 bg-white rounded border border-blue-200">
+                      <p className="text-xs text-gray-600 mb-2">Tasks from "{selectedWorkflow.name}" workflow:</p>
+                      <div className="space-y-1">
+                        {selectedWorkflow.tasks.map((task, index) => (
+                          <div key={index} className="text-sm text-gray-700">
+                            • {task.description} → <span className="font-medium">{task.agentName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -91,7 +221,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
                   </thead>
                   <tbody>
                     {taskRows.map((row, index) => (
-                      <tr key={row.id} className="border-b">
+                      <tr key={row.id} className={`border-b ${row.fromWorkflow ? 'bg-blue-50' : ''}`}>
                         <td className="py-3 pr-4">
                           <div className="flex flex-col gap-1">
                             <button
@@ -116,12 +246,30 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
                         </td>
                         <td className="py-3 px-4">
                           <div className="relative">
+                            {row.fromWorkflow && (
+                              <div className="text-xs text-blue-600 mb-1 flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                                From workflow
+                              </div>
+                            )}
                             <textarea
                               value={row.description}
-                              onChange={(e) => updateTaskRow(row.id, 'description', e.target.value)}
+                              onChange={(e) => {
+                                updateTaskRow(row.id, 'description', e.target.value);
+                                // Auto-expand textarea
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                              }}
+                              onInput={(e) => {
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                              }}
                               placeholder="Enter task description..."
-                              rows={2}
-                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                              rows={1}
+                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-hidden"
+                              style={{ minHeight: '2.5rem' }}
                             />
                             {row.description.trim() && (
                               <button
@@ -203,7 +351,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask }) => {
               disabled={loading || !hasValidTasks}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating...' : `Create ${taskRows.filter(r => r.description.trim() && r.agentName).length} Task${taskRows.filter(r => r.description.trim() && r.agentName).length !== 1 ? 's' : ''}`}
+              {loading ? (mode === 'edit' ? 'Updating...' : 'Creating...') : (mode === 'edit' ? 'Update Tasks' : `Create ${taskRows.filter(r => r.description.trim() && r.agentName).length} Task${taskRows.filter(r => r.description.trim() && r.agentName).length !== 1 ? 's' : ''}`)}
             </button>
           </div>
         </div>
