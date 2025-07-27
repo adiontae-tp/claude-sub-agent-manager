@@ -1,6 +1,6 @@
 {
   "name": "@adiontaegerron/claude-sub-agent-manager",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A CLI tool for managing Claude Code sub-agents in your projects",
   "author": "Claude Sub-Agent Manager Contributors",
   "license": "MIT",
@@ -36,21 +36,25 @@
     "LICENSE"
   ],
   "scripts": {
-    "install": "npm run install:backend && npm run install:frontend",
-    "install:backend": "cd backend && npm install",
-    "install:frontend": "cd frontend && npm install",
-    "build": "npm run build:frontend",
-    "build:frontend": "cd frontend && npm run build",
     "start": "node cli.js",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm start",
     "dev:frontend": "cd frontend && npm run dev",
     "prepublishOnly": "npm run build",
-    "setup": "npm install && cp .env.template backend/.env && echo 'Please edit backend/.env with your Anthropic API key'"
+    "build": "npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "setup:local": "cd backend && npm install && cd ../frontend && npm install"
   },
   "dependencies": {
     "commander": "^11.1.0",
-    "open": "^8.4.2"
+    "open": "^8.4.2",
+    "@anthropic-ai/sdk": "^0.38.0",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"

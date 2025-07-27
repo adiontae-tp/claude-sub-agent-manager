@@ -150,6 +150,14 @@ program
     
     // Start the server
     const serverPath = path.join(__dirname, 'backend', 'server.js');
+    
+    // Check if backend exists (for development)
+    if (!fs.existsSync(serverPath)) {
+      console.error('Error: Backend server not found. This may be due to incomplete installation.');
+      console.error('Please reinstall the package or clone the repository for development.');
+      process.exit(1);
+    }
+    
     const serverProcess = spawn('node', [serverPath], {
       stdio: 'inherit',
       env: { ...process.env }
