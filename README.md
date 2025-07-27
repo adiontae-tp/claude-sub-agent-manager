@@ -23,17 +23,23 @@ A powerful CLI tool for managing Claude Code sub-agents in your projects. This t
 ### Global Installation (Recommended)
 
 ```bash
-npm install -g claude-sub-agent-manager
+npm install -g @adiontaegerron/claude-sub-agent-manager
 # or
-yarn global add claude-sub-agent-manager
+yarn global add @adiontaegerron/claude-sub-agent-manager
 ```
 
 ### Local Installation
 
 ```bash
-npm install --save-dev claude-sub-agent-manager
+npm install --save-dev @adiontaegerron/claude-sub-agent-manager
 # or
-yarn add -D claude-sub-agent-manager
+yarn add -D @adiontaegerron/claude-sub-agent-manager
+```
+
+### Using npx (No Installation)
+
+```bash
+npx @adiontaegerron/claude-sub-agent-manager
 ```
 
 ### From Source
