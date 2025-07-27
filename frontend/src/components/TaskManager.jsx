@@ -5,7 +5,6 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
   const [queuedTasks, setQueuedTasks] = useState([]);
   const [draggedTask, setDraggedTask] = useState(null);
   const [expandedTasks, setExpandedTasks] = useState(new Set());
-  const [taskProgress, setTaskProgress] = useState({});
 
   // Update task lists when agents change
   useEffect(() => {
@@ -23,7 +22,6 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
             status: typeof task === 'object' ? task.status : 'pending',
             queued: typeof task === 'object' ? task.queued : false,
             subtasks: typeof task === 'object' ? task.subtasks || [] : [],
-            progress: typeof task === 'object' ? task.progress || 0 : 0
           };
           
           if (taskItem.queued) {
@@ -100,7 +98,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
       const updatedTasks = agent.tasks.map((task, index) => {
         if (index === draggedTask.originalIndex) {
           return typeof task === 'string' 
-            ? { description: task, status: 'pending', queued: targetList === 'queued', progress: 0, subtasks: [] }
+            ? { description: task, status: 'pending', queued: targetList === 'queued', subtasks: [] }
             : { ...task, queued: targetList === 'queued' };
         }
         return task;
@@ -130,7 +128,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
       const updatedTasks = agent.tasks.map((t, index) => {
         if (index === task.originalIndex) {
           return typeof t === 'string' 
-            ? { description: newDescription, status: task.status, queued: task.queued, subtasks: task.subtasks, progress: task.progress }
+            ? { description: newDescription, status: task.status, queued: task.queued, subtasks: task.subtasks }
             : { ...t, description: newDescription };
         }
         return t;
@@ -198,7 +196,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
       return 'then ' + part;
     }).join(', ');
     
-    const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their progress using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. As they work (update the number):\n   "Update your progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/progress/50"\n\n4. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
+    const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their status using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
     
     try {
       await navigator.clipboard.writeText(fullCommand);
@@ -230,7 +228,19 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <div className="font-medium text-gray-900">{taskItem.task}</div>
-                <div className="text-sm text-gray-600 mt-1">Agent: {taskItem.agentName}</div>
+                <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                  <span>Agent: {taskItem.agentName}</span>
+                  <span className="flex items-center gap-1">
+                    Status: 
+                    {taskItem.status === 'completed' ? (
+                      <span className="text-green-600 font-medium">Done</span>
+                    ) : taskItem.status === 'in-progress' || taskItem.queued ? (
+                      <span className="text-blue-600 font-medium">Started</span>
+                    ) : (
+                      <span className="text-gray-500 font-medium">Not started</span>
+                    )}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center gap-2 ml-4">
                 {taskItem.status === 'completed' && (
@@ -260,22 +270,6 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
                 </button>
               </div>
             </div>
-            
-            {/* Progress bar */}
-            {taskItem.progress > 0 && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                  <span>Progress</span>
-                  <span>{taskItem.progress}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${taskItem.progress}%` }}
-                  />
-                </div>
-              </div>
-            )}
             
             {/* Subtasks section */}
             {taskItem.subtasks.length > 0 && (
@@ -473,7 +467,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, pro
                         return 'then ' + part;
                       }).join(', ');
                       
-                      const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their progress using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. As they work (update the number):\n   "Update your progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/progress/50"\n\n4. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
+                      const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their status using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
                       try {
                         await navigator.clipboard.writeText(fullCommand);
                         onCopyCommand();
