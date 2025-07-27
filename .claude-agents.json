@@ -1,0 +1,6 @@
+{
+  "projectName": "claude-sub-agent-manager",
+  "agentsDirectory": ".claude/agents",
+  "techStackFile": "tech-stack-data.json",
+  "templatesDirectory": "agent-templates"
+}
