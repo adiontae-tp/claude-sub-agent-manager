@@ -1,7 +1,7 @@
 {
-  "name": "claude-sub-agent-manager",
-  "version": "1.0.0",
-  "description": "A web-based tool for managing Claude Code sub-agents in your projects",
+  "name": "@adiontaegerron/claude-sub-agent-manager",
+  "version": "2.0.0",
+  "description": "A CLI tool for managing Claude Code sub-agents in your projects",
   "author": "Claude Sub-Agent Manager Contributors",
   "license": "MIT",
   "keywords": [
@@ -9,27 +9,56 @@
     "ai",
     "sub-agents",
     "anthropic",
-    "code-assistant"
+    "code-assistant",
+    "cli"
   ],
-  "homepage": "https://github.com/yourusername/claude-sub-agent-manager",
+  "homepage": "https://github.com/adiontae-tp/claude-sub-agent-manager",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/claude-sub-agent-manager.git"
+    "url": "https://github.com/adiontae-tp/claude-sub-agent-manager.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/claude-sub-agent-manager/issues"
+    "url": "https://github.com/adiontae-tp/claude-sub-agent-manager/issues"
   },
+  "main": "cli.js",
+  "bin": {
+    "claude-agents": "./cli.js"
+  },
+  "files": [
+    "cli.js",
+    "backend/server.js",
+    "backend/package.json",
+    "backend/package-lock.json",
+    "frontend/dist/",
+    "agent-templates/",
+    "tech-stack-data.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "install": "npm run install:backend && npm run install:frontend",
     "install:backend": "cd backend && npm install",
     "install:frontend": "cd frontend && npm install",
-    "start": "npm run dev",
+    "build": "npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "node cli.js",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm start",
     "dev:frontend": "cd frontend && npm run dev",
+    "prepublishOnly": "npm run build",
     "setup": "npm install && cp .env.template backend/.env && echo 'Please edit backend/.env with your Anthropic API key'"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "open": "^8.4.2"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
+  },
+  "optionalDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
-} 
+}

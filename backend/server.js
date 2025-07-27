@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const dotenv = require('dotenv');
@@ -10,6 +11,20 @@ const sqlite3 = require('sqlite3').verbose();
 
 // Load environment variables
 dotenv.config();
+
+// Function to get configuration
+function getConfig() {
+  const configPath = process.env.CLAUDE_AGENTS_CONFIG;
+  if (configPath && fs.existsSync(configPath)) {
+    try {
+      const configContent = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(configContent);
+    } catch (error) {
+      console.error('Error reading config file:', error);
+    }
+  }
+  return {};
+}
 
 // Initialize SQLite database
 const db = new sqlite3.Database('./tasks.db', (err) => {
@@ -66,19 +81,37 @@ const upload = multer({
 app.use(cors());
 app.use(bodyParser.json());
 
+// Serve static frontend files if available
+const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
+if (fsSync.existsSync(frontendPath)) {
+  app.use(express.static(frontendPath));
+  
+  // Catch-all route to serve index.html for client-side routing
+  app.get('*', (req, res, next) => {
+    // Skip API routes
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
+}
+
 // Get parent directory path
 app.get('/api/parent-directory', (req, res) => {
-  // Use the current directory where the app is installed
-  const currentDir = path.resolve(__dirname, '../..')
+  // Use configured root or current directory where the app is installed
+  const projectRoot = process.env.CLAUDE_AGENTS_ROOT || path.resolve(__dirname, '../..');
+  const config = getConfig();
+  
   res.json({ 
-    path: currentDir,
-    agentsPath: path.join(currentDir, '.claude', 'agents')
+    path: projectRoot,
+    agentsPath: path.join(projectRoot, config.agentsDirectory || '.claude/agents')
   })
 })
 
 // Validate directory endpoint
 app.post('/api/validate-directory', async (req, res) => {
   const { directory } = req.body;
+  const config = getConfig();
   
   try {
     const stats = await fs.stat(directory);
@@ -89,7 +122,8 @@ app.post('/api/validate-directory', async (req, res) => {
     // Try to access the directory
     await fs.access(directory, fs.constants.W_OK);
     
-    res.json({ valid: true, fullPath: path.join(directory, '.claude', 'agents') });
+    const agentsDir = config.agentsDirectory || '.claude/agents';
+    res.json({ valid: true, fullPath: path.join(directory, agentsDir) });
   } catch (error) {
     res.status(400).json({ valid: false, error: error.message });
   }

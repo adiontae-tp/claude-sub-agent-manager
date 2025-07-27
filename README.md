@@ -1,6 +1,6 @@
 # Claude Sub-Agent Manager
 
-A powerful web-based tool for managing Claude Code sub-agents in your projects. This tool provides an intuitive interface to create, manage, and monitor multiple AI sub-agents that work together on your codebase.
+A powerful CLI tool for managing Claude Code sub-agents in your projects. This tool provides an intuitive web interface to create, manage, and monitor multiple AI sub-agents that work together on your codebase.
 
 ## 🌟 Features
 
@@ -15,246 +15,246 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 - **🗑️ Easy Management** - Edit, delete, and organize your sub-agents
 - **📱 Modern UI** - Clean, responsive interface with collapsible sections and toast notifications
 - **🖥️ Terminal Integration** - Web-based terminal for direct command execution
+- **📁 Config Discovery** - Automatically finds config files by walking up the directory tree
+- **🚀 Standalone CLI** - Install globally or locally and run from anywhere in your project
 
-## 🚀 Quick Start
+## 🚀 Installation
 
-1. **Clone into your project directory:**
-   ```bash
-   cd your-project
-   git clone https://github.com/yourusername/claude-sub-agent-manager.git
-   cd claude-sub-agent-manager
-   ```
+### Global Installation (Recommended)
 
-2. **Set up your Anthropic API key:**
-   ```bash
-   cp .env.template backend/.env
-   # Edit backend/.env and add your ANTHROPIC_API_KEY
-   ```
-
-3. **Install and run:**
-   ```bash
-   npm install
-   npm start
-   ```
-
-4. **Open in browser:**
-   Navigate to `http://localhost:5173` (or the port shown in terminal)
-
-The tool will automatically manage agents in its own `.claude/agents/` directory.
-
-## 📁 How It Works
-
-Claude Sub-Agent Manager stores agents in the same directory where it's installed:
-
-```
-claude-sub-agent-manager/
-├── .claude/
-│   ├── agents/          # Your sub-agents are stored here
-│   └── tasks/           # Task files (for backward compatibility)
-├── backend/             
-│   ├── server.js        # Express server
-│   └── tasks.db         # SQLite database for task tracking
-├── frontend/            # React app
-└── other-files/
+```bash
+npm install -g claude-sub-agent-manager
+# or
+yarn global add claude-sub-agent-manager
 ```
 
-## 🎯 Usage
+### Local Installation
 
-### Creating a Single Agent
+```bash
+npm install --save-dev claude-sub-agent-manager
+# or
+yarn add -D claude-sub-agent-manager
+```
 
-1. Click "Create New Agent"
-2. Enter agent name and description
-3. Use "Generate with Claude" to create an AI-powered system prompt
-4. Review and edit the prompt
-5. Click "Create Agent"
-6. **Add Tasks** - Assign specific tasks to the agent for focused execution
+### From Source
 
-### Importing Multiple Agents
+```bash
+git clone https://github.com/adiontae-tp/claude-sub-agent-manager.git
+cd claude-sub-agent-manager
+npm install
+npm run build
+npm link  # Makes 'claude-agents' command available globally
+```
 
-1. Click "Import Agents"
-2. Either paste your project requirements or upload a document
-3. Click "Analyze & Generate"
-4. Review and edit the suggested agents
-5. Click "Create X Agents" to create them all
+## 🎯 Quick Start
 
-### Managing Agents
+### 1. Initialize your project
 
-- **List View** - See all agents with their assigned tasks and status progress
-- **Dashboard View** - Comprehensive overview with metrics, agent status, and task progress
-- **All Tasks View** - Reorder tasks across selected agents for sequential execution
-- **Start Agents** - Generate commands for individual or batch agent execution
-- **Delete** - Remove agents you no longer need
+```bash
+# In your project root directory
+claude-agents init
+```
+
+This creates a `.claude-agents.json` config file in your project root.
+
+### 2. Configure your API key
+
+Either set the environment variable:
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+Or add it to your config file:
+```json
+{
+  "projectName": "My Project",
+  "apiKey": "your-api-key-here"
+}
+```
+
+### 3. Start the agent manager
+
+```bash
+# From anywhere in your project
+claude-agents
+```
+
+The tool will automatically find your config file and start the web interface.
+
+## 📁 Project Structure
+
+After installation, your project will look like this:
+
+```
+your-project/
+├── .claude-agents.json       # Configuration file
+├── .claude/                  # Agent data directory (created automatically)
+│   ├── agents/              # Agent markdown files
+│   ├── agents-status/       # Agent status tracking
+│   └── tech-stack.json      # Tech stack data
+├── src/                     # Your project files
+├── package.json
+└── ...
+```
+
+## ⚙️ Configuration
+
+### Config File Format
+
+The `.claude-agents.json` file supports the following options:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/adiontae-tp/claude-sub-agent-manager/main/.claude-agents.schema.json",
+  "projectName": "My Awesome Project",
+  "agentsDirectory": ".claude/agents",
+  "techStackFile": ".claude/tech-stack.json",
+  "templatesDirectory": ".claude/templates",
+  "apiKey": "sk-...",  // Optional, can use env var instead
+  "server": {
+    "port": 3001,
+    "autoOpen": true
+  }
+}
+```
+
+### Config Discovery
+
+The CLI searches for config files in this order:
+1. Path specified with `--config` flag
+2. Current directory
+3. Parent directories (up to project root)
+4. Stops at first `.git` or `package.json` found
+
+Supported config file names:
+- `.claude-agents.json`
+- `.claude-agents.yaml`
+- `.claude-agents.yml`
+
+## 🖥️ CLI Commands
+
+### Main Command
+
+```bash
+claude-agents [options]
+```
+
+**Options:**
+- `-c, --config <path>` - Path to config file
+- `-r, --root <path>` - Project root directory
+- `-p, --port <number>` - Port to run server on (default: 3001)
+- `--no-browser` - Don't open browser automatically
+- `-h, --help` - Display help
+- `-V, --version` - Display version
+
+### Initialize Command
+
+```bash
+claude-agents init
+```
+
+Creates a new `.claude-agents.json` config file in the current directory.
+
+### Examples
+
+```bash
+# Start with default config
+claude-agents
+
+# Use specific config file
+claude-agents --config ./config/agents.json
+
+# Run on different port
+claude-agents --port 8080
+
+# Don't open browser
+claude-agents --no-browser
+
+# Specify project root
+claude-agents --root /path/to/project
+```
+
+## 📋 Usage from Any Directory
+
+Once installed and configured, you can run `claude-agents` from any subdirectory:
+
+```bash
+cd your-project/src/components
+claude-agents  # Still finds config in project root
+
+cd ../utils
+claude-agents  # Works here too!
+```
+
+## 🔧 Advanced Features
+
+### Tech Stack Integration
+
+Create a `.claude/tech-stack.json` file to provide context about your project:
+
+```json
+{
+  "frontend": ["React", "TypeScript", "Tailwind CSS"],
+  "backend": ["Node.js", "Express", "PostgreSQL"],
+  "tools": ["Webpack", "ESLint", "Jest"]
+}
+```
+
+### Custom Agent Templates
+
+Place custom templates in your templates directory:
+
+```markdown
+---
+name: frontend-specialist
+specialization: React and TypeScript development
+---
+
+You are a frontend development specialist focusing on React and TypeScript...
+```
 
 ### Task Management
 
-- **Assign Tasks** - Add specific tasks to each agent after creation
-- **Task Tracking** - Monitor both assigned tasks and status tracking tasks
-- **Sequential Execution** - Use "All Tasks View" to reorder tasks and generate sequential commands
-- **Command Generation** - Automatic generation of Claude Code commands with task details
-- **Direct Execution** - Run sequential tasks directly in the terminal with one click
-
-### Terminal Integration
-
-- **Web Terminal** - Access a full terminal directly from the application
-- **Direct Execution** - Run commands without copying and pasting from the UI
-- **Session Management** - Start, stop, and monitor terminal sessions
-- **Direct Access** - No authentication required for easy use
-- **Auto Claude Startup** - Start Claude with selected agents directly from terminal
-- **Multiple Terminals** - Create and manage multiple independent terminal tabs
-- **Tab Renaming** - Double-click terminal tabs to rename them
-
-### SQLite Task Tracking
-
-The application now uses SQLite for reliable, persistent task tracking:
-
-#### Benefits
-- **Persistent Storage** - Tasks survive server restarts and page refreshes
-- **Concurrent Updates** - Handles multiple agents updating simultaneously
-- **Real-time Sync** - Changes are immediately reflected across all views
-- **No File Conflicts** - Eliminates race conditions from file-based tracking
-
-#### Agent Task Updates
-
-Agents can update their task progress using simple curl commands:
-
-```bash
-# Mark task as queued (when agent starts working)
-curl -X POST http://localhost:3001/api/task/developer/0/queued/true
-
-# Update task status
-curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress
-
-# Update progress percentage
-curl -X POST http://localhost:3001/api/task/developer/0/progress/50
-
-# Mark task as completed
-curl -X POST http://localhost:3001/api/task/developer/0/status/completed
-```
-
-#### API Endpoints
-
-- `GET /api/task-progress` - Get all task progress
-- `GET /api/task-progress/:agentName` - Get progress for specific agent
-- `POST /api/task-progress/:agentName/:taskIndex` - Update task with JSON body
-- `POST /api/task/:agentName/:taskIndex/:field/:value` - Simple field update
-
-The simplified URL format makes it easy for agents to update their status without complex JSON payloads.
-
-To use the terminal:
-1. Click the **"Terminal"** button in the application header
-2. The terminal will start and open in a modal window
-3. Execute commands directly in the web terminal (no authentication required)
-4. Use **"Start Claude"** or **"Start Selected Agents"** buttons to automatically start Claude
-5. Click **"Stop Terminal"** to close the session
-
-**Quick Task Execution:**
-- In the **"All Tasks"** view, use **"Run Sequential Tasks"** button to execute your task list directly in the terminal
-- This automatically starts the terminal and runs your sequential commands without copying/pasting
-
-## 🛠️ Sub-Agent File Structure
-
-Each sub-agent is stored as a Markdown file with YAML frontmatter:
-
-```markdown
----
-name: frontend-developer
-description: Handles all frontend development tasks
-tasks:
-  - Build the user dashboard
-  - Implement authentication system
-  - Add responsive design
----
-
-You are a frontend development specialist...
-
-## Status Tracking
-
-You have a status file at .claude/agents-status/frontend-developer-status.md...
-```
-
-## 📊 Agent Status Tracking
-
-Agents update their status in structured Markdown files:
-
-```markdown
----
-agent: frontend-developer
-last_updated: 2024-01-15 10:30:00
-status: active
----
-
-# Current Plan
-Working on implementing the user dashboard...
-
-# Todo List
-- [x] Set up React components
-- [ ] Implement state management
-- [ ] Add API integration
-
-# Progress Updates
-## 2024-01-15 10:30:00
-Created initial component structure...
-```
-
-## 🎯 Command Generation
-
-The tool generates Claude Code commands in the correct format:
-
-**Single Agent:**
-```
-Use the frontend-developer sub agent to build the user dashboard and implement authentication system
-```
-
-**Multiple Agents (Sequential):**
-```
-Use the project-manager sub agent to coordinate the sprint and priorities, then use the frontend-developer sub agent to build the user dashboard, then use the backend-developer sub agent to implement the API endpoints
-```
-
-## 📊 Dashboard Features
-
-The enhanced dashboard provides:
-
-- **Key Metrics** - Total agents, assigned tasks, active agents, progress percentage
-- **Agent Overview** - Individual agent cards with status, task counts, and progress
-- **Task Progress** - Visual progress bars for status tracking tasks
-- **Recent Activity** - Assigned tasks and status tracking tasks
-- **Quick Actions** - Direct navigation to other views and features
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file in the backend directory:
-
-```env
-ANTHROPIC_API_KEY=your-api-key-here
-PORT=3001
-```
-
-### Supported File Types for Import
-
-- `.txt` - Plain text files
-- `.md` - Markdown documentation
-- `.json` - Structured project data
-
-## 🎨 UI Features
-
-- **Collapsible Sections** - Save space with expandable/collapsible cards
-- **Toast Notifications** - Non-intrusive alerts that auto-dismiss
-- **Drag-and-Drop** - Reorder tasks in the All Tasks view
-- **Auto-Refresh** - Automatic status updates for active agents
-- **Responsive Design** - Works on desktop and mobile devices
-- **Modern Styling** - Clean, professional interface with Tailwind CSS
+Agents support SQLite-based task tracking with:
+- Progress tracking
+- Subtask management
+- Status updates
+- Batch operations
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please read our contributing guidelines and submit PRs.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see LICENSE file for details.
 
-## 🙏 Acknowledgments
+## 🐛 Troubleshooting
 
-- Built for use with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic
-- Uses Claude API for intelligent agent generation 
+### Common Issues
+
+1. **Config file not found**
+   - Ensure `.claude-agents.json` exists in your project root
+   - Check file permissions
+
+2. **API key errors**
+   - Verify your Anthropic API key is set correctly
+   - Check environment variables with `echo $ANTHROPIC_API_KEY`
+
+3. **Port already in use**
+   - Use `--port` flag to specify a different port
+   - Check for other running instances
+
+### Debug Mode
+
+Run with debug output:
+```bash
+DEBUG=claude-agents claude-agents
+```
+
+## 📚 Resources
+
+- [Documentation](https://github.com/adiontae-tp/claude-sub-agent-manager/wiki)
+- [API Reference](https://github.com/adiontae-tp/claude-sub-agent-manager/wiki/API)
+- [Examples](https://github.com/adiontae-tp/claude-sub-agent-manager/tree/main/examples)
+- [Changelog](https://github.com/adiontae-tp/claude-sub-agent-manager/blob/main/CHANGELOG.md)

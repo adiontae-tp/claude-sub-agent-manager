@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Claude Agents Configuration",
+  "description": "Configuration file for Claude Sub-Agent Manager",
+  "type": "object",
+  "properties": {
+    "projectName": {
+      "type": "string",
+      "description": "Name of your project"
+    },
+    "agentsDirectory": {
+      "type": "string",
+      "description": "Directory where agent files will be stored (relative to config file location)",
+      "default": ".claude/agents"
+    },
+    "techStackFile": {
+      "type": "string",
+      "description": "Path to tech stack data file (relative to config file location)",
+      "default": "tech-stack-data.json"
+    },
+    "templatesDirectory": {
+      "type": "string",
+      "description": "Directory containing agent templates (relative to config file location)",
+      "default": "agent-templates"
+    },
+    "apiKey": {
+      "type": "string",
+      "description": "Anthropic API key (can also be set via ANTHROPIC_API_KEY env var)"
+    },
+    "server": {
+      "type": "object",
+      "description": "Server configuration options",
+      "properties": {
+        "port": {
+          "type": "number",
+          "description": "Port to run the server on",
+          "default": 3001
+        },
+        "autoOpen": {
+          "type": "boolean",
+          "description": "Automatically open browser when server starts",
+          "default": true
+        }
+      }
+    }
+  },
+  "required": ["projectName"],
+  "additionalProperties": false
+}

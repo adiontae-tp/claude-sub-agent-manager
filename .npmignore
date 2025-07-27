@@ -1,0 +1,61 @@
+# Development files
+.env
+.env.template
+*.log
+.DS_Store
+
+# All node_modules
+node_modules/
+*/node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Source files (keep only dist)
+frontend/src/
+frontend/public/
+frontend/*.config.js
+frontend/*.json
+frontend/*.md
+frontend/README.md
+frontend/index.html
+
+# Backend development files
+backend/*.db
+backend/test*.html
+backend/.env
+backend/tasks.db
+backend/.claude/
+
+# Documentation source
+docs/
+*.md
+!README.md
+!LICENSE
+!agent-templates/*.md
+
+# Config files
+.gitignore
+.eslintrc*
+.prettierrc*
+.claude-agents.schema.json
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Build artifacts
+*.tgz
+
+# Example and temp files
+.claude-agents.example.json
+EXAMPLE_PROJECT_STRUCTURE.md
+TASK_TRACKING.md
+TERMINAL_INTEGRATION.md
+setup.sh
+App-old.jsx
+
+# Git files
+.git/
+.gitignore
