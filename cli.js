@@ -149,12 +149,12 @@ program
     process.env.PORT = options.port;
     
     // Start the server
-    const serverPath = path.join(__dirname, 'backend', 'server.js');
+    const serverPath = path.join(__dirname, 'server.js');
     
-    // Check if backend exists (for development)
+    // Check if server exists
     if (!fs.existsSync(serverPath)) {
-      console.error('Error: Backend server not found. This may be due to incomplete installation.');
-      console.error('Please reinstall the package or clone the repository for development.');
+      console.error('Error: Server not found. This may be due to incomplete installation.');
+      console.error('Please reinstall the package.');
       process.exit(1);
     }
     
