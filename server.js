@@ -26,6 +26,15 @@ function getConfig() {
   return {};
 }
 
+// Token usage tracking
+let tokenUsage = {
+  total: 0,
+  byAgent: {},
+  bySession: 0,
+  dailyLimit: 100000, // Default daily limit
+  warningThreshold: 0.8 // Warn at 80% usage
+};
+
 // Initialize SQLite database
 const dbPath = process.env.CLAUDE_AGENTS_ROOT ? path.join(process.env.CLAUDE_AGENTS_ROOT, '.claude', 'tasks.db') : './tasks.db';
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -259,9 +268,10 @@ Generate a comprehensive system prompt for this sub-agent that:
 
 Return ONLY the system prompt text (no markdown formatting, no explanations).`;
 
+    const config = getConfig();
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2000,
+      model: config.model || 'claude-3-haiku-20240307', // Use configurable model, default to Haiku
+      max_tokens: config.maxTokensPerRequest || 1000, // Configurable max tokens
       messages: [{ role: 'user', content: prompt }]
     });
     
@@ -269,6 +279,15 @@ Return ONLY the system prompt text (no markdown formatting, no explanations).`;
     res.json({ systemPrompt });
   } catch (error) {
     console.error('Claude API error:', error);
+    
+    // Check for credit balance error
+    if (error.message && error.message.includes('credit_balance_too_low')) {
+      return res.status(402).json({ 
+        error: 'Anthropic API credit balance too low. Please add credits to your account at https://console.anthropic.com/account/balance',
+        type: 'credit_error'
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to generate agent: ' + error.message });
   }
 });
@@ -302,9 +321,10 @@ Improve the prompt to:
 
 Return ONLY the enhanced system prompt text (no markdown formatting, no explanations).`;
 
+    const config = getConfig();
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2000,
+      model: config.model || 'claude-3-haiku-20240307', // Use configurable model, default to Haiku
+      max_tokens: config.maxTokensPerRequest || 1000, // Configurable max tokens
       messages: [{ role: 'user', content: prompt }]
     });
     
@@ -312,6 +332,15 @@ Return ONLY the enhanced system prompt text (no markdown formatting, no explanat
     res.json({ systemPrompt: enhancedPrompt });
   } catch (error) {
     console.error('Claude API error:', error);
+    
+    // Check for credit balance error
+    if (error.message && error.message.includes('credit_balance_too_low')) {
+      return res.status(402).json({ 
+        error: 'Anthropic API credit balance too low. Please add credits to your account at https://console.anthropic.com/account/balance',
+        type: 'credit_error'
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to enhance prompt: ' + error.message });
   }
 });
@@ -1148,9 +1177,10 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
   }
 ]`;
 
+    const config = getConfig();
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
+      model: config.model || 'claude-3-haiku-20240307', // Use configurable model, default to Haiku
+      max_tokens: config.maxTokensPerRequest || 2000, // Configurable max tokens
       messages: [{ role: 'user', content: prompt }]
     });
 
@@ -1209,9 +1239,10 @@ ${content}
 
 IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.`;
 
+    const config = getConfig();
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
+      model: config.model || 'claude-3-haiku-20240307', // Use configurable model, default to Haiku
+      max_tokens: config.maxTokensPerRequest || 2000, // Configurable max tokens
       messages: [{ role: 'user', content: prompt }]
     });
 

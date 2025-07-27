@@ -120,6 +120,30 @@ your-project/
 └── ...
 ```
 
+## 💰 Cost Optimization
+
+To reduce API costs, the tool now uses Claude 3 Haiku by default, which is much cheaper than Sonnet. You can configure this in your `.claude-agents.json`:
+
+```json
+{
+  "projectName": "My Project",
+  "model": "claude-3-haiku-20240307",  // Default: Haiku (cheapest)
+  "maxTokensPerRequest": 1000,         // Default: 1000 (reduced from 2000)
+  "apiKey": "your-api-key"
+}
+```
+
+### Available Models (from cheapest to most expensive):
+- `claude-3-haiku-20240307` - Fastest and cheapest (default)
+- `claude-3-5-sonnet-20241022` - More capable but more expensive
+- `claude-3-opus-20240229` - Most capable but most expensive
+
+### Tips to Reduce Costs:
+1. Use Haiku model for most tasks (10x cheaper than Sonnet)
+2. Reduce `maxTokensPerRequest` to limit response length
+3. Be concise with agent prompts
+4. Monitor your usage at https://console.anthropic.com/account/usage
+
 ## ⚙️ Configuration
 
 ### Config File Format
