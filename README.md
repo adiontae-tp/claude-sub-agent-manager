@@ -2,6 +2,8 @@
 
 A powerful CLI tool for managing Claude Code sub-agents in your projects. This tool provides an intuitive web interface to create, manage, and monitor multiple AI sub-agents that work together on your codebase.
 
+![Claude Sub-Agent Manager Interface](https://github.com/adiontae-tp/claude-sub-agent-manager/assets/YOUR_USERNAME/screenshot.png)
+
 ## 🌟 Features
 
 - **🤖 AI-Powered Agent Generation** - Use Claude to automatically generate sub-agent configurations
