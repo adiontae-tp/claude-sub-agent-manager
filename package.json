@@ -27,8 +27,8 @@
   "files": [
     "cli.js",
     "server.js",
-    "frontend/dist/",
-    "agent-templates/",
+    "frontend/dist/**/*",
+    "agent-templates/**/*",
     "tech-stack-data.json",
     "README.md",
     "LICENSE"

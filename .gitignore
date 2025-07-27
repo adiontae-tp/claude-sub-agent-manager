@@ -8,11 +8,13 @@ node_modules/
 .env.production
 backend/.env
 
-# Production builds
+# Production builds (but not frontend/dist)
 dist/
 build/
 */dist/
 */build/
+!frontend/dist/
+!frontend/dist/**
 
 # Logs
 logs/
@@ -53,3 +55,7 @@ backend/*.db
 # Test HTML files
 test-*.html
 backend/test-*.html
+
+# npm
+.npmignore
+*.tgz
