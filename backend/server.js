@@ -6,9 +6,46 @@ const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const dotenv = require('dotenv');
 const multer = require('multer');
+const sqlite3 = require('sqlite3').verbose();
 
 // Load environment variables
 dotenv.config();
+
+// Initialize SQLite database
+const db = new sqlite3.Database('./tasks.db', (err) => {
+  if (err) {
+    console.error('Error opening database:', err);
+  } else {
+    console.log('Connected to SQLite database');
+    
+    // Create tasks table if it doesn't exist
+    db.run(`CREATE TABLE IF NOT EXISTS task_progress (
+      id TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      task_index INTEGER NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'pending',
+      progress INTEGER DEFAULT 0,
+      queued BOOLEAN DEFAULT 0,
+      subtasks TEXT DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, (err) => {
+      if (err) {
+        console.error('Error creating table:', err);
+      } else {
+        console.log('Task progress table ready');
+        
+        // Create index for faster queries
+        db.run(`CREATE INDEX IF NOT EXISTS idx_agent_task ON task_progress(agent_name, task_index)`, (err) => {
+          if (err) {
+            console.error('Error creating index:', err);
+          }
+        });
+      }
+    });
+  }
+});
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -67,6 +104,29 @@ app.get('/api/list-agents/:encodedDir', async (req, res) => {
     const files = await fs.readdir(agentsDir);
     const agents = [];
     
+    // Get all task progress from SQLite
+    const allTaskProgress = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM task_progress ORDER BY agent_name, task_index', (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+    
+    // Group task progress by agent name
+    const taskProgressByAgent = {};
+    allTaskProgress.forEach(row => {
+      if (!taskProgressByAgent[row.agent_name]) {
+        taskProgressByAgent[row.agent_name] = [];
+      }
+      taskProgressByAgent[row.agent_name].push({
+        description: row.description || '',
+        status: row.status || 'pending',
+        queued: row.queued === 1,
+        progress: row.progress || 0,
+        subtasks: JSON.parse(row.subtasks || '[]')
+      });
+    });
+    
     for (const file of files) {
       if (file.endsWith('.md')) {
         const content = await fs.readFile(path.join(agentsDir, file), 'utf-8');
@@ -77,22 +137,25 @@ app.get('/api/list-agents/:encodedDir', async (req, res) => {
           const nameMatch = frontmatter.match(/name:\s*(.+)/);
           const descMatch = frontmatter.match(/description:\s*(.+)/);
           
-          // Only load tasks from JSON file - don't fall back to YAML
-          let tasks = [];
-          const taskFile = path.join(directory, '.claude', 'tasks', `${nameMatch[1].trim()}-tasks.json`);
+          const agentName = nameMatch ? nameMatch[1].trim() : file.replace('.md', '');
           
-          try {
-            const taskData = await fs.readFile(taskFile, 'utf-8');
-            tasks = JSON.parse(taskData);
-          } catch (err) {
-            // If JSON file doesn't exist, tasks array remains empty
-            // This ensures tasks only appear in the queue after being properly created
-            tasks = [];
+          // Get tasks from SQLite or from JSON file if no SQLite data
+          let tasks = taskProgressByAgent[agentName] || [];
+          
+          if (tasks.length === 0) {
+            // Fall back to JSON file for backward compatibility
+            const taskFile = path.join(directory, '.claude', 'tasks', `${agentName}-tasks.json`);
+            try {
+              const taskData = await fs.readFile(taskFile, 'utf-8');
+              tasks = JSON.parse(taskData);
+            } catch (err) {
+              tasks = [];
+            }
           }
           
           agents.push({
             filename: file,
-            name: nameMatch ? nameMatch[1].trim() : file.replace('.md', ''),
+            name: agentName,
             description: descMatch ? descMatch[1].trim() : 'No description',
             tasks: tasks
           });
@@ -381,6 +444,43 @@ app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
     const { agentName } = req.params;
     const { tasks } = req.body;
     
+    // Update SQLite database
+    // First, remove all existing tasks for this agent
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM task_progress WHERE agent_name = ?', [agentName], (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    
+    // Insert new tasks
+    if (tasks && tasks.length > 0) {
+      const stmt = db.prepare(`INSERT INTO task_progress 
+        (id, agent_name, task_index, description, status, progress, queued, subtasks) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      
+      tasks.forEach((task, index) => {
+        const id = `${agentName}-${index}`;
+        const taskObj = typeof task === 'string' 
+          ? { description: task, status: 'pending', queued: false, progress: 0, subtasks: [] }
+          : task;
+        
+        stmt.run(
+          id,
+          agentName,
+          index,
+          taskObj.description || taskObj.task || '',
+          taskObj.status || 'pending',
+          taskObj.progress || 0,
+          taskObj.queued ? 1 : 0,
+          JSON.stringify(taskObj.subtasks || [])
+        );
+      });
+      
+      stmt.finalize();
+    }
+    
+    // Also save to JSON file for backward compatibility
     const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
     const tasksDir = path.join(directory, '.claude', 'tasks');
     const taskFile = path.join(tasksDir, `${agentName}-tasks.json`);
@@ -1080,17 +1180,16 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
 });
 
 // Terminal management endpoints
-let terminalProcess = null;
-let terminalPort = null;
+// Support multiple terminal instances
+const terminals = new Map(); // Map of terminalId -> { process, port }
+let terminalIdCounter = 1;
 
 // Start terminal session
 app.post('/api/terminal/start', async (req, res) => {
   try {
-    // Kill existing terminal process if running
-    if (terminalProcess) {
-      terminalProcess.kill();
-      terminalProcess = null;
-    }
+    const terminalId = terminalIdCounter++;
+    
+    // Don't kill existing terminals - allow multiple instances
 
     // Find an available port starting from 7681 (ttyd default)
     const { spawn } = require('child_process');
@@ -1109,83 +1208,117 @@ app.post('/api/terminal/start', async (req, res) => {
       });
     };
 
-    // Kill any existing ttyd processes on common ports
-    const killExistingTtyd = () => {
-      return new Promise((resolve) => {
-        const { exec } = require('child_process');
-        exec('pkill -f "ttyd.*768[0-9]"', (error) => {
-          // Ignore errors as there might not be any processes to kill
-          setTimeout(resolve, 1000); // Wait a moment for processes to be killed
-        });
-      });
-    };
-
-    // Kill any existing ttyd processes first
-    await killExistingTtyd();
+    // Don't kill existing terminals - find a unique port for this instance
+    const basePort = 7681;
+    const maxPort = basePort + 20; // Allow up to 20 terminals
+    let port = null;
     
-    const port = await findAvailablePort(7681);
-    terminalPort = port;
+    // Find an available port that's not being used by our terminals
+    for (let p = basePort; p <= maxPort; p++) {
+      let isUsedByUs = false;
+      for (const [id, term] of terminals) {
+        if (term.port === p) {
+          isUsedByUs = true;
+          break;
+        }
+      }
+      
+      if (!isUsedByUs) {
+        const isAvailable = await new Promise((resolve) => {
+          const server = net.createServer();
+          server.listen(p, () => {
+            server.close(() => resolve(true));
+          });
+          server.on('error', () => resolve(false));
+        });
+        
+        if (isAvailable) {
+          port = p;
+          break;
+        }
+      }
+    }
+    
+    if (!port) {
+      return res.status(500).json({ error: 'No available ports for new terminal' });
+    }
 
-    // Start ttyd process
-    terminalProcess = spawn('ttyd', [
+    // Start ttyd process with unique title
+    // Each terminal runs on a different port, so they are independent
+    const terminalProcess = spawn('ttyd', [
       '-p', port.toString(),
       '-W', // Enable writable mode
-      '-t', 'titleFixed=Claude Agent Terminal',
+      '-t', `titleFixed=Terminal ${terminalId}`,
       '-t', 'theme=dark',
-      'bash'
+      '-t', 'fontSize=14',
+      '-d', '7', // Debug level
+      'bash' // Start a new bash shell
     ], {
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: 'inherit', // Let ttyd handle its own I/O
+      cwd: process.cwd(),
+      detached: false
+    });
+
+    // Store terminal info
+    terminals.set(terminalId, {
+      process: terminalProcess,
+      port: port,
+      id: terminalId
     });
 
     terminalProcess.on('error', (error) => {
-      console.error('Failed to start ttyd:', error);
-      res.status(500).json({ error: 'Failed to start terminal' });
+      console.error(`Failed to start ttyd for terminal ${terminalId}:`, error);
+      terminals.delete(terminalId);
     });
 
     terminalProcess.on('exit', (code) => {
-      console.log(`ttyd process exited with code ${code}`);
-      terminalProcess = null;
-      terminalPort = null;
+      console.log(`ttyd process for terminal ${terminalId} exited with code ${code}`);
+      terminals.delete(terminalId);
     });
 
-    // Add stdout and stderr handlers for debugging
-    terminalProcess.stdout.on('data', (data) => {
-      console.log('ttyd stdout:', data.toString());
-    });
-
-    terminalProcess.stderr.on('data', (data) => {
-      console.log('ttyd stderr:', data.toString());
-    });
-
-    // Wait a moment for ttyd to start, then send startup information
-    setTimeout(() => {
-      // Send startup information to the terminal
-      if (terminalProcess && !terminalProcess.killed) {
-        const startupInfo = `
-echo "🚀 Starting Claude Agent Manager..."
-echo "Current directory: $(pwd)"
-echo ""
-echo "Available agents:"
-ls -la .claude/agents/ 2>/dev/null || echo "No agents directory found"
-echo ""
-echo "Quick Commands:"
-echo "  • claude agents start <agent-name>     - Start a specific agent"
-echo "  • claude agents start <agent1> <agent2> - Start multiple agents"
-echo "  • claude --help                        - See all commands"
-echo ""
-echo "🎯 Ready to work with your agents!"
-echo ""
-        `.trim();
-        
-        terminalProcess.stdin.write(startupInfo + '\n');
-      }
-      
-      res.json({ 
-        url: `http://localhost:${port}`,
-        port: port,
-        status: 'running'
+    // Wait for ttyd to fully start before returning
+    // Check if the port is actually listening before returning
+    const checkPort = async () => {
+      const net = require('net');
+      return new Promise((resolve) => {
+        const client = new net.Socket();
+        client.setTimeout(100);
+        client.on('connect', () => {
+          client.destroy();
+          resolve(true);
+        });
+        client.on('timeout', () => {
+          client.destroy();
+          resolve(false);
+        });
+        client.on('error', () => {
+          resolve(false);
+        });
+        client.connect(port, 'localhost');
       });
-    }, 1000);
+    };
+    
+    // Wait for ttyd to be ready
+    let retries = 0;
+    const waitForReady = async () => {
+      if (await checkPort()) {
+        res.json({ 
+          terminalId: terminalId,
+          url: `http://localhost:${port}`,
+          port: port,
+          status: 'running'
+        });
+      } else if (retries < 10) {
+        retries++;
+        setTimeout(waitForReady, 200);
+      } else {
+        terminals.delete(terminalId);
+        terminalProcess.kill();
+        res.status(500).json({ error: 'Terminal failed to start' });
+      }
+    };
+    
+    setTimeout(waitForReady, 500);
 
   } catch (error) {
     console.error('Error starting terminal:', error);
@@ -1193,16 +1326,18 @@ echo ""
   }
 });
 
-// Stop terminal session
-app.post('/api/terminal/stop', async (req, res) => {
+// Stop specific terminal session
+app.post('/api/terminal/stop/:terminalId', async (req, res) => {
   try {
-    if (terminalProcess) {
-      terminalProcess.kill();
-      terminalProcess = null;
-      terminalPort = null;
-      res.json({ status: 'stopped' });
+    const terminalId = parseInt(req.params.terminalId);
+    const terminal = terminals.get(terminalId);
+    
+    if (terminal) {
+      terminal.process.kill();
+      terminals.delete(terminalId);
+      res.json({ status: 'stopped', terminalId });
     } else {
-      res.json({ status: 'not running' });
+      res.json({ status: 'not found', terminalId });
     }
   } catch (error) {
     console.error('Error stopping terminal:', error);
@@ -1275,6 +1410,174 @@ app.post('/api/terminal/start-claude', async (req, res) => {
   }
 });
 
+// ==================== NEW SQLITE-BASED ENDPOINTS ====================
+
+// Get all task progress (replaces file-based reading)
+app.get('/api/task-progress', (req, res) => {
+  db.all('SELECT * FROM task_progress ORDER BY agent_name, task_index', (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    // Parse subtasks from JSON string
+    const tasks = rows.map(row => ({
+      ...row,
+      subtasks: JSON.parse(row.subtasks || '[]'),
+      queued: row.queued === 1
+    }));
+    
+    res.json(tasks);
+  });
+});
+
+// Get task progress for a specific agent
+app.get('/api/task-progress/:agentName', (req, res) => {
+  const { agentName } = req.params;
+  
+  db.all(
+    'SELECT * FROM task_progress WHERE agent_name = ? ORDER BY task_index',
+    [agentName],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      const tasks = rows.map(row => ({
+        ...row,
+        subtasks: JSON.parse(row.subtasks || '[]'),
+        queued: row.queued === 1
+      }));
+      
+      res.json(tasks);
+    }
+  );
+});
+
+// Update task progress (simplified for agents)
+app.post('/api/task-progress/:agentName/:taskIndex', (req, res) => {
+  const { agentName, taskIndex } = req.params;
+  const updates = req.body;
+  const id = `${agentName}-${taskIndex}`;
+  
+  // Build update query dynamically based on provided fields
+  const allowedFields = ['status', 'progress', 'queued', 'subtasks', 'description'];
+  const updateFields = [];
+  const values = [];
+  
+  for (const field of allowedFields) {
+    if (updates[field] !== undefined) {
+      updateFields.push(`${field} = ?`);
+      // Convert subtasks to JSON string if provided
+      if (field === 'subtasks') {
+        values.push(JSON.stringify(updates[field]));
+      } else if (field === 'queued') {
+        values.push(updates[field] ? 1 : 0);
+      } else {
+        values.push(updates[field]);
+      }
+    }
+  }
+  
+  if (updateFields.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+  
+  // Add updated_at
+  updateFields.push('updated_at = CURRENT_TIMESTAMP');
+  
+  // Add values for WHERE clause
+  values.push(id);
+  
+  const query = `UPDATE task_progress SET ${updateFields.join(', ')} WHERE id = ?`;
+  
+  db.run(query, values, function(err) {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (this.changes === 0) {
+      // Record doesn't exist, create it
+      db.run(
+        `INSERT INTO task_progress (id, agent_name, task_index, description, status, progress, queued, subtasks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          agentName,
+          parseInt(taskIndex),
+          updates.description || '',
+          updates.status || 'pending',
+          updates.progress || 0,
+          updates.queued ? 1 : 0,
+          JSON.stringify(updates.subtasks || [])
+        ],
+        (insertErr) => {
+          if (insertErr) {
+            return res.status(500).json({ error: insertErr.message });
+          }
+          res.json({ success: true, created: true });
+        }
+      );
+    } else {
+      res.json({ success: true, updated: true });
+    }
+  });
+});
+
+// Simplified endpoint for agent status updates (even simpler than above)
+app.post('/api/task/:agentName/:taskIndex/:field/:value', (req, res) => {
+  const { agentName, taskIndex, field, value } = req.params;
+  const id = `${agentName}-${taskIndex}`;
+  
+  // Validate field
+  const allowedFields = ['status', 'progress', 'queued'];
+  if (!allowedFields.includes(field)) {
+    return res.status(400).json({ error: 'Invalid field' });
+  }
+  
+  let updateValue = value;
+  if (field === 'queued') {
+    updateValue = value === 'true' ? 1 : 0;
+  } else if (field === 'progress') {
+    updateValue = parseInt(value);
+  }
+  
+  db.run(
+    `UPDATE task_progress SET ${field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [updateValue, id],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        // Create if doesn't exist
+        db.run(
+          `INSERT INTO task_progress (id, agent_name, task_index, ${field}) VALUES (?, ?, ?, ?)`,
+          [id, agentName, parseInt(taskIndex), updateValue],
+          (insertErr) => {
+            if (insertErr) {
+              return res.status(500).json({ error: insertErr.message });
+            }
+            res.json({ success: true });
+          }
+        );
+      } else {
+        res.json({ success: true });
+      }
+    }
+  );
+});
+
+// Clear all task progress (useful for testing)
+app.delete('/api/task-progress', (req, res) => {
+  db.run('DELETE FROM task_progress', (err) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ success: true, message: 'All task progress cleared' });
+  });
+});
+
 const PORT = process.env.PORT || 3001;
 // Start server
 const server = app.listen(PORT, () => {
@@ -1285,10 +1588,22 @@ const server = app.listen(PORT, () => {
 // Cleanup on server shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down server...');
-  if (terminalProcess) {
-    console.log('Stopping terminal process...');
-    terminalProcess.kill();
+  
+  // Kill all terminal processes
+  for (const [id, term] of terminals) {
+    if (term.process) {
+      console.log(`Stopping terminal ${id}...`);
+      term.process.kill();
+    }
   }
+  
+  // Close database
+  db.close((err) => {
+    if (err) {
+      console.error('Error closing database:', err);
+    }
+  });
+  
   server.close(() => {
     console.log('Server stopped');
     process.exit(0);

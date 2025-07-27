@@ -16,21 +16,19 @@ function App() {
   const [message, setMessage] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [existingAgents, setExistingAgents] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState(null);
   const [selectedAgentsForStart, setSelectedAgentsForStart] = useState(new Set());
   const [expandedAgents, setExpandedAgents] = useState(new Set());
   const [viewMode, setViewMode] = useState('list');
   const [editingAgent, setEditingAgent] = useState(null);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
   const [showTechStackModal, setShowTechStackModal] = useState(false);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+  const [techStackCount, setTechStackCount] = useState(0);
   
-  // Terminal state
-  const [terminalStatus, setTerminalStatus] = useState('not_started');
-  const [terminalUrl, setTerminalUrl] = useState('');
-  const [terminalError, setTerminalError] = useState('');
-  const [terminalLoading, setTerminalLoading] = useState(false);
+  // Terminal state - now supports multiple terminals
+  const [terminals, setTerminals] = useState([]);
+  const [activeTerminalId, setActiveTerminalId] = useState(null);
+  const [terminalIdCounter, setTerminalIdCounter] = useState(1);
 
   // Auto-dismiss messages after 5 seconds
   useEffect(() => {
@@ -60,11 +58,34 @@ function App() {
   useEffect(() => {
     if (projectDir) {
       loadAgents();
+      loadTechStackCount();
     }
   }, [projectDir]);
 
 
   // API functions
+  const loadTechStackCount = async () => {
+    if (!projectDir) return;
+    try {
+      const encodedDir = encodeURIComponent(projectDir);
+      const response = await fetch(`http://localhost:3001/api/tech-stack/global/${encodedDir}`);
+      const data = await response.json();
+      
+      if (data.techStack && typeof data.techStack === 'object') {
+        // Count total technologies across all categories
+        const count = Object.values(data.techStack).reduce((total, techs) => {
+          return total + (Array.isArray(techs) ? techs.length : 0);
+        }, 0);
+        setTechStackCount(count);
+      } else {
+        setTechStackCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to load tech stack count:', error);
+      setTechStackCount(0);
+    }
+  };
+
   const loadAgents = async () => {
     if (!projectDir) return;
     try {
@@ -165,8 +186,22 @@ function App() {
     }
   };
 
-  const startTerminal = async () => {
-    setTerminalLoading(true);
+  const createNewTerminal = async () => {
+    const newTerminalId = terminalIdCounter;
+    setTerminalIdCounter(prev => prev + 1);
+    
+    const newTerminal = {
+      id: newTerminalId,
+      name: `Terminal ${newTerminalId}`,
+      status: 'starting',
+      url: '',
+      error: '',
+      loading: true
+    };
+    
+    setTerminals(prev => [...prev, newTerminal]);
+    setActiveTerminalId(newTerminalId);
+    
     try {
       const response = await fetch('http://localhost:3001/api/terminal/start', {
         method: 'POST'
@@ -177,15 +212,58 @@ function App() {
       }
       
       const data = await response.json();
-      setTerminalUrl(data.url);
-      setTerminalStatus('running');
-      setTerminalError('');
+      
+      // Update the terminal with the actual ID from backend
+      setTerminals(prev => prev.map(term => 
+        term.id === newTerminalId 
+          ? { ...term, 
+              id: data.terminalId || newTerminalId, // Use backend ID if provided
+              url: data.url, 
+              status: 'running', 
+              loading: false, 
+              error: '' 
+            }
+          : term
+      ));
     } catch (error) {
-      setTerminalError(error.message);
+      setTerminals(prev => prev.map(term => 
+        term.id === newTerminalId 
+          ? { ...term, error: error.message, status: 'error', loading: false }
+          : term
+      ));
       setMessage({ type: 'error', text: 'Failed to start terminal' });
-    } finally {
-      setTerminalLoading(false);
     }
+  };
+
+  const closeTerminal = async (terminalId) => {
+    // First, tell the backend to stop the terminal
+    try {
+      await fetch(`http://localhost:3001/api/terminal/stop/${terminalId}`, {
+        method: 'POST'
+      });
+    } catch (error) {
+      console.error('Failed to stop terminal on backend:', error);
+    }
+    
+    setTerminals(prev => prev.filter(term => term.id !== terminalId));
+    
+    // If we're closing the active terminal, switch to another one
+    if (activeTerminalId === terminalId) {
+      const remainingTerminals = terminals.filter(term => term.id !== terminalId);
+      if (remainingTerminals.length > 0) {
+        setActiveTerminalId(remainingTerminals[remainingTerminals.length - 1].id);
+      } else {
+        setActiveTerminalId(null);
+      }
+    }
+  };
+  
+  const renameTerminal = (terminalId, newName) => {
+    setTerminals(prev => prev.map(term => 
+      term.id === terminalId 
+        ? { ...term, name: newName }
+        : term
+    ));
   };
 
   // Handler functions
@@ -238,103 +316,7 @@ function App() {
     setEditingAgent(null);
   };
 
-  const generateSequentialCommand = () => {
-    if (selectedAgentsForStart.size === 0) {
-      return '';
-    }
-    
-    let command = '';
-    
-    // If we're in tasks view and have a custom order, use it
-    if (viewMode === 'tasks') {
-      // Get tasks from TaskManager's order if available
-      const selectedAgentsList = Array.from(selectedAgentsForStart);
-      const tasks = [];
-      
-      selectedAgentsList.forEach(agentName => {
-        const agent = existingAgents.find(a => a.name === agentName);
-        if (agent?.tasks && agent.tasks.length > 0) {
-          agent.tasks.forEach(task => {
-            tasks.push({
-              agentName,
-              task
-            });
-          });
-        }
-      });
-      
-      if (tasks.length > 0) {
-        const commandParts = [];
-        let currentAgent = null;
-        let currentTasks = [];
-        
-        tasks.forEach((taskItem) => {
-          if (currentAgent !== taskItem.agentName) {
-            // Finish previous agent's tasks
-            if (currentAgent && currentTasks.length > 0) {
-              commandParts.push(`use the ${currentAgent} sub agent to ${currentTasks.join(' and ')}`);
-            }
-            currentAgent = taskItem.agentName;
-            currentTasks = [taskItem.task];
-          } else {
-            currentTasks.push(taskItem.task);
-          }
-        });
-        
-        // Add the last agent's tasks
-        if (currentAgent && currentTasks.length > 0) {
-          commandParts.push(`use the ${currentAgent} sub agent to ${currentTasks.join(' and ')}`);
-        }
-        
-        command = commandParts.map((part, index) => {
-          if (index === 0) return part.charAt(0).toUpperCase() + part.slice(1);
-          return 'then ' + part;
-        }).join(', ');
-      }
-    } else {
-      // Original behavior for list view
-      const agentCommands = Array.from(selectedAgentsForStart).map(agentName => {
-        const agent = existingAgents.find(a => a.name === agentName);
-        
-        // If agent has tasks, include them in the command
-        if (agent?.tasks && agent.tasks.length > 0) {
-          const taskList = agent.tasks.join(' and ');
-          return `Use the ${agentName} sub agent to ${taskList}`;
-        }
-        
-        // Fallback to description if no tasks
-        return `Use the ${agentName} sub agent to ${agent?.description.toLowerCase() || 'complete its assigned tasks'}`;
-      });
-      
-      command = agentCommands.join('\n\n');
-    }
-    
-    // Add tracking reminder
-    if (command) {
-      command += '\n\nIMPORTANT: Each agent should update their status files to track progress. Check the status with the dashboard view.';
-    }
-    
-    return command;
-  };
 
-  const copySequentialCommand = async () => {
-    const command = generateSequentialCommand();
-    if (!command) {
-      setMessage({ type: 'error', text: 'No agents selected to copy command for' });
-      return;
-    }
-    
-    try {
-      await navigator.clipboard.writeText(command);
-      setMessage({ 
-        type: 'success', 
-        text: `Copied commands for ${selectedAgentsForStart.size} agent${selectedAgentsForStart.size > 1 ? 's' : ''} to clipboard with status update instructions!` 
-      });
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      setMessage({ type: 'error', text: 'Failed to copy to clipboard' });
-    }
-  };
 
   const startSelectedAgents = () => {
     // Implementation for starting selected agents
@@ -408,9 +390,9 @@ function App() {
             onViewModeChange={setViewMode}
             onShowCreateForm={() => setShowCreateForm(true)}
             onShowCreateTask={() => setShowCreateTaskModal(true)}
-            onShowImport={() => setShowImportModal(true)}
             onShowTechStack={() => setShowTechStackModal(true)}
             existingAgentsCount={existingAgents.length}
+            techStackCount={techStackCount}
           />
 
           {/* Main Content with Terminal */}
@@ -439,6 +421,7 @@ function App() {
               {viewMode === 'tasks' && (
                 <TaskManager
                   agents={existingAgents}
+                  projectDir={projectDir}
                   onCopyCommand={() => setMessage({ type: 'success', text: 'Claude instructions copied to clipboard!' })}
                   onUpdateAgentTasks={async (agentName, tasks) => {
                     try {
@@ -465,13 +448,15 @@ function App() {
 
             {/* Persistent Terminal Panel */}
             <Terminal
-              terminalStatus={terminalStatus}
-              terminalUrl={terminalUrl}
-              terminalError={terminalError}
-              terminalLoading={terminalLoading}
-              onStart={startTerminal}
-              onCopyCommand={copySequentialCommand}
-              selectedAgentsCount={selectedAgentsForStart.size}
+              terminals={terminals}
+              activeTerminalId={activeTerminalId}
+              onSelectTerminal={setActiveTerminalId}
+              onCreateTerminal={createNewTerminal}
+              onCloseTerminal={closeTerminal}
+              onRenameTerminal={renameTerminal}
+              onCopyCommand={() => setMessage({ type: 'success', text: 'Claude instructions copied to clipboard!' })}
+              agents={existingAgents}
+              projectDir={projectDir}
               className="w-full lg:w-1/2 h-64 lg:h-auto"
             />
           </div>
@@ -485,14 +470,17 @@ function App() {
             onCancel={handleCancelForm}
             onShowTemplates={() => setShowTemplatesModal(true)}
             onMessage={setMessage}
+            loading={loading}
           />
         )}
 
         <TechStackModal
           isOpen={showTechStackModal}
           onClose={() => setShowTechStackModal(false)}
-          onSave={(technologies) => {
+          projectDir={projectDir}
+          onSave={() => {
             setMessage({ type: 'success', text: 'Tech stack updated successfully!' });
+            loadTechStackCount(); // Refresh the count after saving
           }}
         />
 

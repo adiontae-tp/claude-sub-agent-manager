@@ -6,7 +6,8 @@ const Header = ({
   onShowCreateTask,
   onShowImport,
   onShowTechStack,
-  existingAgentsCount
+  existingAgentsCount,
+  techStackCount
 }) => {
   return (
     <div className="mb-6">
@@ -87,7 +88,7 @@ const Header = ({
               onClick={onShowTechStack}
               className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm"
             >
-              Tech Stack
+              Tech Stack{techStackCount > 0 && ` (${techStackCount})`}
             </button>
           </div>
 

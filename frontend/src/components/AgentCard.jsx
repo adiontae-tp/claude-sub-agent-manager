@@ -102,7 +102,7 @@ const AgentCard = ({
                   {agent.tasks.map((task, index) => (
                     <li key={index} className="text-sm text-gray-600 flex items-start gap-2 py-1">
                       <span className="text-purple-600 mt-0.5">•</span>
-                      <span className="flex-1">{task}</span>
+                      <span className="flex-1">{typeof task === 'string' ? task : task.description || task.task || ''}</span>
                     </li>
                   ))}
                 </ul>

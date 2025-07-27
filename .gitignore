@@ -44,3 +44,12 @@ temp/
 # Package lock files (optional, uncomment if you prefer not to commit these)
 # package-lock.json
 # yarn.lock 
+
+# Database files
+*.db
+tasks.db
+backend/*.db
+
+# Test HTML files
+test-*.html
+backend/test-*.html

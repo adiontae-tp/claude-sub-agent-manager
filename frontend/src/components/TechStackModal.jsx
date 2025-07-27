@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const TechStackModal = ({ isOpen, onClose, onSave }) => {
+const TechStackModal = ({ isOpen, onClose, onSave, projectDir }) => {
   const [selectedTechnologies, setSelectedTechnologies] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [techStackLoading, setTechStackLoading] = useState(false);
@@ -72,10 +72,20 @@ const TechStackModal = ({ isOpen, onClose, onSave }) => {
   const loadTechStack = async () => {
     setTechStackLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/tech-stack');
+      const encodedDir = encodeURIComponent(projectDir);
+      const response = await fetch(`http://localhost:3001/api/tech-stack/global/${encodedDir}`);
       if (response.ok) {
         const data = await response.json();
-        setSelectedTechnologies(data.technologies || []);
+        // Convert the tech stack object to an array of technologies
+        const techs = [];
+        if (data.techStack) {
+          Object.values(data.techStack).forEach(category => {
+            if (Array.isArray(category)) {
+              techs.push(...category);
+            }
+          });
+        }
+        setSelectedTechnologies(techs);
       }
     } catch (error) {
       console.error('Failed to load tech stack:', error);
@@ -86,10 +96,41 @@ const TechStackModal = ({ isOpen, onClose, onSave }) => {
 
   const saveTechStack = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/tech-stack', {
+      // Organize technologies by category
+      const techStack = {
+        Frontend: [],
+        Backend: [],
+        Database: [],
+        Tools: [],
+        Other: []
+      };
+      
+      // Categorize technologies
+      selectedTechnologies.forEach(tech => {
+        if (['React', 'Vue.js', 'Angular', 'Svelte', 'Next.js', 'Nuxt.js', 'Gatsby', 'HTML5', 'CSS3', 'JavaScript', 'TypeScript', 'Sass/SCSS', 'Tailwind CSS', 'Bootstrap', 'Material-UI', 'Ant Design', 'Chakra UI'].includes(tech)) {
+          techStack.Frontend.push(tech);
+        } else if (['Node.js', 'Express.js', 'Django', 'Flask', 'Ruby on Rails', 'Laravel', 'Spring Boot', 'ASP.NET Core', 'FastAPI', 'NestJS', 'Koa.js'].includes(tech)) {
+          techStack.Backend.push(tech);
+        } else if (['PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite', 'Oracle', 'Cassandra', 'DynamoDB', 'Firebase', 'Supabase'].includes(tech)) {
+          techStack.Database.push(tech);
+        } else if (['Docker', 'Kubernetes', 'Git', 'GitHub Actions', 'Jenkins', 'CircleCI', 'AWS', 'Google Cloud', 'Azure', 'Vercel', 'Netlify', 'Heroku', 'Jest', 'Mocha', 'Cypress', 'Selenium', 'Pytest', 'RSpec'].includes(tech)) {
+          techStack.Tools.push(tech);
+        } else {
+          techStack.Other.push(tech);
+        }
+      });
+      
+      // Remove empty categories
+      Object.keys(techStack).forEach(key => {
+        if (techStack[key].length === 0) {
+          delete techStack[key];
+        }
+      });
+      
+      const response = await fetch('http://localhost:3001/api/tech-stack/global', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technologies: selectedTechnologies })
+        body: JSON.stringify({ directory: projectDir, techStack })
       });
       
       if (response.ok) {
@@ -232,7 +273,11 @@ const TechStackModal = ({ isOpen, onClose, onSave }) => {
               {/* Selected Technologies */}
               <div>
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Selected Technologies</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Selected Technologies {selectedTechnologies.length > 0 && (
+                      <span className="text-base font-normal text-gray-600">({selectedTechnologies.length})</span>
+                    )}
+                  </h3>
                   {selectedTechnologies.length > 0 && (
                     <button
                       onClick={clearTechStack}

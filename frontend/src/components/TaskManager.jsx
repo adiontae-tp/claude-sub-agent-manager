@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) => {
+const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh, projectDir }) => {
   const [unqueuedTasks, setUnqueuedTasks] = useState([]);
   const [queuedTasks, setQueuedTasks] = useState([]);
   const [draggedTask, setDraggedTask] = useState(null);
@@ -121,20 +121,23 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
     setExpandedTasks(newExpanded);
   };
 
-  const markTaskComplete = async (task) => {
-    const agent = agents.find(a => a.name === task.agentName);
-    if (!agent) return;
-    
-    const updatedTasks = agent.tasks.map((t, index) => {
-      if (index === task.originalIndex) {
-        return typeof t === 'string' 
-          ? { description: t, status: 'completed', queued: task.queued, subtasks: task.subtasks, progress: 100 }
-          : { ...t, status: 'completed', progress: 100 };
-      }
-      return t;
-    });
-    
-    await onUpdateAgentTasks(task.agentName, updatedTasks);
+  const editTask = async (task) => {
+    const newDescription = prompt('Edit task description:', task.task);
+    if (newDescription && newDescription !== task.task) {
+      const agent = agents.find(a => a.name === task.agentName);
+      if (!agent) return;
+      
+      const updatedTasks = agent.tasks.map((t, index) => {
+        if (index === task.originalIndex) {
+          return typeof t === 'string' 
+            ? { description: newDescription, status: task.status, queued: task.queued, subtasks: task.subtasks, progress: task.progress }
+            : { ...t, description: newDescription };
+        }
+        return t;
+      });
+      
+      await onUpdateAgentTasks(task.agentName, updatedTasks);
+    }
   };
 
   const deleteTask = async (task) => {
@@ -145,8 +148,28 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
     await onUpdateAgentTasks(task.agentName, updatedTasks);
   };
 
-  const copyClaudeInstructions = () => {
+  const copyClaudeInstructions = async () => {
     if (unqueuedTasks.length === 0) return;
+    
+    // Fetch tech stack information
+    let techStackInfo = '';
+    try {
+      const encodedDir = encodeURIComponent(projectDir);
+      const response = await fetch(`http://localhost:3001/api/tech-stack/global/${encodedDir}`);
+      const data = await response.json();
+      
+      if (data.techStack && Object.keys(data.techStack).length > 0) {
+        techStackInfo = '\n\nPROJECT TECH STACK:';
+        for (const [category, technologies] of Object.entries(data.techStack)) {
+          if (technologies && technologies.length > 0) {
+            techStackInfo += `\n- ${category}: ${technologies.join(', ')}`;
+          }
+        }
+        techStackInfo += '\n';
+      }
+    } catch (error) {
+      console.error('Failed to fetch tech stack:', error);
+    }
     
     const commandParts = [];
     let currentAgent = null;
@@ -175,7 +198,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
       return 'then ' + part;
     }).join(', ');
     
-    const fullCommand = command + '\n\nIMPORTANT: Each agent MUST:\n1. Mark their tasks as queued: curl -X POST http://localhost:3001/api/update-task-progress/{project-dir}/{agent-name}/{task-index} -d \'{"queued": true}\'\n2. Update task status to "in-progress" when starting work\n3. Update progress percentage (0-100) as they work\n4. Set status to "completed" when done\n\nRefer to TASK_TRACKING.md for detailed instructions.';
+    const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their progress using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. As they work (update the number):\n   "Update your progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/progress/50"\n\n4. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
     
     navigator.clipboard.writeText(fullCommand);
     
@@ -206,23 +229,22 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
                 <div className="text-sm text-gray-600 mt-1">Agent: {taskItem.agentName}</div>
               </div>
               <div className="flex items-center gap-2 ml-4">
-                {taskItem.status === 'completed' ? (
-                  <span className="text-green-600">
+                {taskItem.status === 'completed' && (
+                  <span className="text-green-600" title="Completed">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                   </span>
-                ) : (
-                  <button
-                    onClick={() => markTaskComplete(taskItem)}
-                    className="text-gray-400 hover:text-green-600 transition-colors"
-                    title="Mark as complete"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </button>
                 )}
+                <button
+                  onClick={() => editTask(taskItem)}
+                  className="text-gray-400 hover:text-blue-600 transition-colors"
+                  title="Edit task"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
                 <button
                   onClick={() => deleteTask(taskItem)}
                   className="text-gray-400 hover:text-red-600 transition-colors"
@@ -401,6 +423,27 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
                   <button
                     onClick={async () => {
                       const incompleteTasks = queuedTasks.filter(t => t.status !== 'completed');
+                      
+                      // Fetch tech stack information
+                      let techStackInfo = '';
+                      try {
+                        const encodedDir = encodeURIComponent(projectDir);
+                        const response = await fetch(`http://localhost:3001/api/tech-stack/global/${encodedDir}`);
+                        const data = await response.json();
+                        
+                        if (data.techStack && Object.keys(data.techStack).length > 0) {
+                          techStackInfo = '\n\nPROJECT TECH STACK:';
+                          for (const [category, technologies] of Object.entries(data.techStack)) {
+                            if (technologies && technologies.length > 0) {
+                              techStackInfo += `\n- ${category}: ${technologies.join(', ')}`;
+                            }
+                          }
+                          techStackInfo += '\n';
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch tech stack:', error);
+                      }
+                      
                       const commandParts = [];
                       let currentAgent = null;
                       let currentTasks = [];
@@ -426,7 +469,7 @@ const TaskManager = ({ agents, onCopyCommand, onUpdateAgentTasks, onRefresh }) =
                         return 'then ' + part;
                       }).join(', ');
                       
-                      const fullCommand = command + '\n\nIMPORTANT: Check task progress and continue where you left off. Update task status as you work.';
+                      const fullCommand = command + techStackInfo + '\n\nTASK TRACKING INSTRUCTIONS:\n\nFOR EACH SUB-AGENT, tell them to update their progress using these simple commands:\n\nExample for "developer" agent working on task 0:\n\n1. When they start:\n   "First, mark your task as started:\n   curl -X POST http://localhost:3001/api/task/developer/0/queued/true"\n   \n2. Then:\n   "Now mark as in-progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/in-progress"\n\n3. As they work (update the number):\n   "Update your progress:\n   curl -X POST http://localhost:3001/api/task/developer/0/progress/50"\n\n4. When done:\n   "Mark your task complete:\n   curl -X POST http://localhost:3001/api/task/developer/0/status/completed"\n   \nThese simple URLs make it easy for agents to update their status.';
                       navigator.clipboard.writeText(fullCommand);
                       onCopyCommand();
                     }}
