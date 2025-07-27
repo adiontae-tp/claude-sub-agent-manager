@@ -15,9 +15,9 @@ dotenv.config();
 // Function to get configuration
 function getConfig() {
   const configPath = process.env.CLAUDE_AGENTS_CONFIG;
-  if (configPath && fs.existsSync(configPath)) {
+  if (configPath && fsSync.existsSync(configPath)) {
     try {
-      const configContent = fs.readFileSync(configPath, 'utf8');
+      const configContent = fsSync.readFileSync(configPath, 'utf8');
       return JSON.parse(configContent);
     } catch (error) {
       console.error('Error reading config file:', error);
