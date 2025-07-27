@@ -77,15 +77,17 @@ app.get('/api/list-agents/:encodedDir', async (req, res) => {
           const nameMatch = frontmatter.match(/name:\s*(.+)/);
           const descMatch = frontmatter.match(/description:\s*(.+)/);
           
-          // Parse tasks - look for tasks array in YAML
+          // Only load tasks from JSON file - don't fall back to YAML
           let tasks = [];
-          const tasksMatch = frontmatter.match(/tasks:\s*\n((?:\s*-\s*.+\n?)*)/);
-          if (tasksMatch) {
-            tasks = tasksMatch[1]
-              .split('\n')
-              .filter(line => line.trim().startsWith('-'))
-              .map(line => line.trim().substring(1).trim())
-              .filter(task => task.length > 0);
+          const taskFile = path.join(directory, '.claude', 'tasks', `${nameMatch[1].trim()}-tasks.json`);
+          
+          try {
+            const taskData = await fs.readFile(taskFile, 'utf-8');
+            tasks = JSON.parse(taskData);
+          } catch (err) {
+            // If JSON file doesn't exist, tasks array remains empty
+            // This ensures tasks only appear in the queue after being properly created
+            tasks = [];
           }
           
           agents.push({
@@ -380,8 +382,16 @@ app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
     const { tasks } = req.body;
     
     const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+    const tasksDir = path.join(directory, '.claude', 'tasks');
+    const taskFile = path.join(tasksDir, `${agentName}-tasks.json`);
     
-    // Read current agent file
+    // Ensure tasks directory exists
+    await fs.mkdir(tasksDir, { recursive: true });
+    
+    // Save tasks to dedicated JSON file
+    await fs.writeFile(taskFile, JSON.stringify(tasks, null, 2), 'utf-8');
+    
+    // Also update agent file for backward compatibility
     const content = await fs.readFile(agentFile, 'utf-8');
     const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     
@@ -392,12 +402,25 @@ app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
     let frontmatter = match[1];
     const body = match[2];
     
-    // Remove existing tasks if any
-    frontmatter = frontmatter.replace(/tasks:\s*\n((?:\s*-\s*.+\n)*)/g, '');
+    // Remove existing tasks if any - updated regex to handle complex task structures
+    frontmatter = frontmatter.replace(/tasks:\s*\n((?:(?:\s*-\s*.+\n)+(?:\s{4,}.+\n)*)*)/g, '');
     
     // Add new tasks if any
     if (tasks && tasks.length > 0) {
-      const tasksYaml = 'tasks:\n' + tasks.map(task => `  - ${task}`).join('\n');
+      const tasksYaml = 'tasks:\n' + tasks.map(task => {
+        if (typeof task === 'string') {
+          return `  - ${task}`;
+        } else {
+          // Enhanced task format
+          return `  - description: ${task.description || task.task || ''}
+    status: ${task.status || 'pending'}
+    queued: ${task.queued || false}
+    progress: ${task.progress || 0}
+    subtasks: ${task.subtasks && task.subtasks.length > 0 
+      ? '\n' + task.subtasks.map(st => `      - description: ${st.description}\n        completed: ${st.completed || false}`).join('\n')
+      : '[]'}`;
+        }
+      }).join('\n');
       frontmatter = frontmatter.trim() + '\n' + tasksYaml;
     }
     
@@ -408,6 +431,141 @@ app.post('/api/update-agent-tasks/:encodedDir/:agentName', async (req, res) => {
     res.json({ success: true, message: 'Tasks updated successfully' });
   } catch (error) {
     console.error('Error updating tasks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update single task progress (for agents to use)
+app.post('/api/update-task-progress/:encodedDir/:agentName/:taskIndex', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const { agentName, taskIndex } = req.params;
+    const { status, progress, subtasks, queued } = req.body;
+    
+    const tasksDir = path.join(directory, '.claude', 'tasks');
+    const taskFile = path.join(tasksDir, `${agentName}-tasks.json`);
+    
+    // Ensure tasks directory exists
+    await fs.mkdir(tasksDir, { recursive: true });
+    
+    // Read current tasks or get from agent file if task file doesn't exist
+    let tasks = [];
+    try {
+      const taskData = await fs.readFile(taskFile, 'utf-8');
+      tasks = JSON.parse(taskData);
+    } catch (err) {
+      // If task file doesn't exist, try to get tasks from agent file
+      const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+      try {
+        const agentContent = await fs.readFile(agentFile, 'utf-8');
+        const match = agentContent.match(/^---\n([\s\S]*?)\n---/);
+        if (match) {
+          const frontmatter = match[1];
+          // Parse tasks from frontmatter
+          const tasksMatch = frontmatter.match(/tasks:\s*\n((?:\s*-\s*.+\n?)*)/);
+          if (tasksMatch) {
+            const taskLines = tasksMatch[1]
+              .split('\n')
+              .filter(line => line.trim().startsWith('-'))
+              .map(line => line.trim().substring(1).trim())
+              .filter(task => task.length > 0);
+            
+            // Convert to task objects
+            tasks = taskLines.map(task => ({
+              description: task,
+              status: 'pending',
+              queued: false,
+              progress: 0,
+              subtasks: []
+            }));
+            
+            // Save to task file
+            await fs.writeFile(taskFile, JSON.stringify(tasks, null, 2), 'utf-8');
+          }
+        }
+      } catch (agentErr) {
+        return res.status(404).json({ error: 'Agent not found and no task file exists' });
+      }
+    }
+    
+    // Update specific task
+    const index = parseInt(taskIndex);
+    if (index >= 0 && index < tasks.length) {
+      if (status !== undefined) tasks[index].status = status;
+      if (progress !== undefined) tasks[index].progress = progress;
+      if (subtasks !== undefined) tasks[index].subtasks = subtasks;
+      if (queued !== undefined) tasks[index].queued = queued;
+      
+      // Save updated tasks
+      await fs.writeFile(taskFile, JSON.stringify(tasks, null, 2), 'utf-8');
+      
+      res.json({ success: true, message: 'Task progress updated' });
+    } else {
+      res.status(400).json({ error: 'Invalid task index' });
+    }
+  } catch (error) {
+    console.error('Error updating task progress:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get agent tasks (for agents to check their tasks)
+app.get('/api/get-agent-tasks/:encodedDir/:agentName', async (req, res) => {
+  try {
+    const directory = decodeURIComponent(req.params.encodedDir);
+    const { agentName } = req.params;
+    
+    const tasksDir = path.join(directory, '.claude', 'tasks');
+    const taskFile = path.join(tasksDir, `${agentName}-tasks.json`);
+    
+    // Try to read task file
+    try {
+      const taskData = await fs.readFile(taskFile, 'utf-8');
+      const tasks = JSON.parse(taskData);
+      res.json({ success: true, tasks });
+    } catch (err) {
+      // If task file doesn't exist, try to get from agent file
+      const agentFile = path.join(directory, '.claude', 'agents', `${agentName}.md`);
+      try {
+        const agentContent = await fs.readFile(agentFile, 'utf-8');
+        const match = agentContent.match(/^---\n([\s\S]*?)\n---/);
+        if (match) {
+          const frontmatter = match[1];
+          // Parse tasks from frontmatter
+          const tasksMatch = frontmatter.match(/tasks:\s*\n((?:\s*-\s*.+\n?)*)/);
+          if (tasksMatch) {
+            const taskLines = tasksMatch[1]
+              .split('\n')
+              .filter(line => line.trim().startsWith('-'))
+              .map(line => line.trim().substring(1).trim())
+              .filter(task => task.length > 0);
+            
+            // Convert to task objects
+            const tasks = taskLines.map(task => ({
+              description: task,
+              status: 'pending',
+              queued: false,
+              progress: 0,
+              subtasks: []
+            }));
+            
+            // Create task file
+            await fs.mkdir(tasksDir, { recursive: true });
+            await fs.writeFile(taskFile, JSON.stringify(tasks, null, 2), 'utf-8');
+            
+            res.json({ success: true, tasks });
+          } else {
+            res.json({ success: true, tasks: [] });
+          }
+        } else {
+          res.status(400).json({ error: 'Invalid agent file format' });
+        }
+      } catch (agentErr) {
+        res.status(404).json({ error: 'Agent not found' });
+      }
+    }
+  } catch (error) {
+    console.error('Error getting agent tasks:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -921,9 +1079,230 @@ IMPORTANT: Return ONLY a valid JSON array, no markdown formatting or extra text.
   }
 });
 
+// Terminal management endpoints
+let terminalProcess = null;
+let terminalPort = null;
+
+// Start terminal session
+app.post('/api/terminal/start', async (req, res) => {
+  try {
+    // Kill existing terminal process if running
+    if (terminalProcess) {
+      terminalProcess.kill();
+      terminalProcess = null;
+    }
+
+    // Find an available port starting from 7681 (ttyd default)
+    const { spawn } = require('child_process');
+    const net = require('net');
+    
+    const findAvailablePort = (startPort) => {
+      return new Promise((resolve) => {
+        const server = net.createServer();
+        server.listen(startPort, () => {
+          const port = server.address().port;
+          server.close(() => resolve(port));
+        });
+        server.on('error', () => {
+          resolve(findAvailablePort(startPort + 1));
+        });
+      });
+    };
+
+    // Kill any existing ttyd processes on common ports
+    const killExistingTtyd = () => {
+      return new Promise((resolve) => {
+        const { exec } = require('child_process');
+        exec('pkill -f "ttyd.*768[0-9]"', (error) => {
+          // Ignore errors as there might not be any processes to kill
+          setTimeout(resolve, 1000); // Wait a moment for processes to be killed
+        });
+      });
+    };
+
+    // Kill any existing ttyd processes first
+    await killExistingTtyd();
+    
+    const port = await findAvailablePort(7681);
+    terminalPort = port;
+
+    // Start ttyd process
+    terminalProcess = spawn('ttyd', [
+      '-p', port.toString(),
+      '-W', // Enable writable mode
+      '-t', 'titleFixed=Claude Agent Terminal',
+      '-t', 'theme=dark',
+      'bash'
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    terminalProcess.on('error', (error) => {
+      console.error('Failed to start ttyd:', error);
+      res.status(500).json({ error: 'Failed to start terminal' });
+    });
+
+    terminalProcess.on('exit', (code) => {
+      console.log(`ttyd process exited with code ${code}`);
+      terminalProcess = null;
+      terminalPort = null;
+    });
+
+    // Add stdout and stderr handlers for debugging
+    terminalProcess.stdout.on('data', (data) => {
+      console.log('ttyd stdout:', data.toString());
+    });
+
+    terminalProcess.stderr.on('data', (data) => {
+      console.log('ttyd stderr:', data.toString());
+    });
+
+    // Wait a moment for ttyd to start, then send startup information
+    setTimeout(() => {
+      // Send startup information to the terminal
+      if (terminalProcess && !terminalProcess.killed) {
+        const startupInfo = `
+echo "🚀 Starting Claude Agent Manager..."
+echo "Current directory: $(pwd)"
+echo ""
+echo "Available agents:"
+ls -la .claude/agents/ 2>/dev/null || echo "No agents directory found"
+echo ""
+echo "Quick Commands:"
+echo "  • claude agents start <agent-name>     - Start a specific agent"
+echo "  • claude agents start <agent1> <agent2> - Start multiple agents"
+echo "  • claude --help                        - See all commands"
+echo ""
+echo "🎯 Ready to work with your agents!"
+echo ""
+        `.trim();
+        
+        terminalProcess.stdin.write(startupInfo + '\n');
+      }
+      
+      res.json({ 
+        url: `http://localhost:${port}`,
+        port: port,
+        status: 'running'
+      });
+    }, 1000);
+
+  } catch (error) {
+    console.error('Error starting terminal:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stop terminal session
+app.post('/api/terminal/stop', async (req, res) => {
+  try {
+    if (terminalProcess) {
+      terminalProcess.kill();
+      terminalProcess = null;
+      terminalPort = null;
+      res.json({ status: 'stopped' });
+    } else {
+      res.json({ status: 'not running' });
+    }
+  } catch (error) {
+    console.error('Error stopping terminal:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get terminal status
+app.get('/api/terminal/status', async (req, res) => {
+  try {
+    const isRunning = terminalProcess && !terminalProcess.killed;
+    res.json({ 
+      running: isRunning,
+      port: terminalPort,
+      url: isRunning ? `http://localhost:${terminalPort}` : null
+    });
+  } catch (error) {
+    console.error('Error getting terminal status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute command in terminal (if terminal is running)
+app.post('/api/terminal/command', async (req, res) => {
+  try {
+    const { command } = req.body;
+    
+    if (!terminalProcess || terminalProcess.killed) {
+      return res.status(400).json({ error: 'Terminal is not running' });
+    }
+
+    if (!command) {
+      return res.status(400).json({ error: 'No command provided' });
+    }
+
+    // Send command to terminal process
+    terminalProcess.stdin.write(command + '\n');
+    
+    res.json({ status: 'command sent', command });
+  } catch (error) {
+    console.error('Error executing command:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Auto-start Claude with specific agents
+app.post('/api/terminal/start-claude', async (req, res) => {
+  try {
+    const { agents = [] } = req.body;
+    
+    if (!terminalProcess || terminalProcess.killed) {
+      return res.status(400).json({ error: 'Terminal is not running' });
+    }
+
+    // Start Claude in interactive mode
+    let command = 'claude';
+    
+    // If specific agents are provided, we can add them as context
+    if (agents.length > 0) {
+      command += ` --append-system-prompt "You are working with the following agents: ${agents.join(', ')}. Use the agents when appropriate for the task."`;
+    }
+
+    // Send command to terminal process
+    terminalProcess.stdin.write(command + '\n');
+    
+    res.json({ status: 'claude started', command, agents });
+  } catch (error) {
+    console.error('Error starting Claude:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Make sure ANTHROPIC_API_KEY is set in your .env file`);
+});
+
+// Cleanup on server shutdown
+process.on('SIGINT', () => {
+  console.log('\nShutting down server...');
+  if (terminalProcess) {
+    console.log('Stopping terminal process...');
+    terminalProcess.kill();
+  }
+  server.close(() => {
+    console.log('Server stopped');
+    process.exit(0);
+  });
+});
+
+process.on('SIGTERM', () => {
+  console.log('\nShutting down server...');
+  if (terminalProcess) {
+    console.log('Stopping terminal process...');
+    terminalProcess.kill();
+  }
+  server.close(() => {
+    console.log('Server stopped');
+    process.exit(0);
+  });
 }); 

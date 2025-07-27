@@ -14,6 +14,7 @@ A powerful web-based tool for managing Claude Code sub-agents in your projects. 
 - **🎯 Batch Operations** - Start multiple agents with a single command
 - **🗑️ Easy Management** - Edit, delete, and organize your sub-agents
 - **📱 Modern UI** - Clean, responsive interface with collapsible sections and toast notifications
+- **🖥️ Terminal Integration** - Web-based terminal for direct command execution
 
 ## 🚀 Quick Start
 
@@ -88,6 +89,26 @@ claude-sub-agent-manager/
 - **Task Tracking** - Monitor both assigned tasks and status tracking tasks
 - **Sequential Execution** - Use "All Tasks View" to reorder tasks and generate sequential commands
 - **Command Generation** - Automatic generation of Claude Code commands with task details
+- **Direct Execution** - Run sequential tasks directly in the terminal with one click
+
+### Terminal Integration
+
+- **Web Terminal** - Access a full terminal directly from the application
+- **Direct Execution** - Run commands without copying and pasting from the UI
+- **Session Management** - Start, stop, and monitor terminal sessions
+- **Direct Access** - No authentication required for easy use
+- **Auto Claude Startup** - Start Claude with selected agents directly from terminal
+
+To use the terminal:
+1. Click the **"Terminal"** button in the application header
+2. The terminal will start and open in a modal window
+3. Execute commands directly in the web terminal (no authentication required)
+4. Use **"Start Claude"** or **"Start Selected Agents"** buttons to automatically start Claude
+5. Click **"Stop Terminal"** to close the session
+
+**Quick Task Execution:**
+- In the **"All Tasks"** view, use **"Run Sequential Tasks"** button to execute your task list directly in the terminal
+- This automatically starts the terminal and runs your sequential commands without copying/pasting
 
 ## 🛠️ Sub-Agent File Structure
 
