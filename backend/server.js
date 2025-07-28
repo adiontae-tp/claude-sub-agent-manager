@@ -1731,11 +1731,48 @@ app.delete('/api/workflows/:encodedDir/:workflowId', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Make sure ANTHROPIC_API_KEY is set in your .env file`);
-});
+
+// Function to find an available port
+const findAvailablePort = (startPort) => {
+  return new Promise((resolve) => {
+    const testServer = app.listen(startPort, () => {
+      const port = testServer.address().port;
+      testServer.close(() => resolve(port));
+    });
+    
+    testServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`Port ${startPort} is in use, trying ${startPort + 1}...`);
+        resolve(findAvailablePort(startPort + 1));
+      } else {
+        throw err;
+      }
+    });
+  });
+};
+
+// Start server with port detection
+(async () => {
+  try {
+    const availablePort = await findAvailablePort(PORT);
+    const server = app.listen(availablePort, () => {
+      console.log(`\n🚀 Server running on http://localhost:${availablePort}`);
+      if (availablePort !== PORT) {
+        console.log(`   (Port ${PORT} was in use)`);
+      }
+      console.log(`\n📝 Make sure ANTHROPIC_API_KEY is set in your .env file`);
+      
+      // Store the actual port for the CLI to use
+      process.env.ACTUAL_PORT = availablePort;
+    });
+    
+    // Make server available for cleanup
+    global.server = server;
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+})();
 
 // Cleanup on server shutdown
 process.on('SIGINT', () => {
@@ -1756,10 +1793,14 @@ process.on('SIGINT', () => {
     }
   });
   
-  server.close(() => {
-    console.log('Server stopped');
+  if (global.server) {
+    global.server.close(() => {
+      console.log('Server stopped');
+      process.exit(0);
+    });
+  } else {
     process.exit(0);
-  });
+  }
 });
 
 process.on('SIGTERM', () => {
@@ -1768,8 +1809,12 @@ process.on('SIGTERM', () => {
     console.log('Stopping terminal process...');
     terminalProcess.kill();
   }
-  server.close(() => {
-    console.log('Server stopped');
+  if (global.server) {
+    global.server.close(() => {
+      console.log('Server stopped');
+      process.exit(0);
+    });
+  } else {
     process.exit(0);
-  });
+  }
 }); 

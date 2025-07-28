@@ -159,17 +159,38 @@ program
     }
     
     const serverProcess = spawn('node', [serverPath], {
-      stdio: 'inherit',
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env }
     });
     
-    // Open browser after a short delay
-    if (options.browser !== false) {
-      setTimeout(() => {
-        const open = require('open');
-        open(`http://localhost:${options.port}`);
-      }, 2000);
-    }
+    let actualPort = options.port;
+    let serverReady = false;
+    
+    // Capture server output to get actual port
+    serverProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      process.stdout.write(output);
+      
+      // Extract actual port from server output
+      const portMatch = output.match(/Server running on http:\/\/localhost:(\d+)/);
+      if (portMatch) {
+        actualPort = portMatch[1];
+        serverReady = true;
+        
+        // Open browser after server is ready
+        if (options.browser !== false && !process.env.BROWSER_OPENED) {
+          process.env.BROWSER_OPENED = 'true';
+          setTimeout(() => {
+            const open = require('open');
+            open(`http://localhost:${actualPort}`);
+          }, 500);
+        }
+      }
+    });
+    
+    serverProcess.stderr.on('data', (data) => {
+      process.stderr.write(data);
+    });
     
     // Handle graceful shutdown
     process.on('SIGINT', () => {
