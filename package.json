@@ -15,14 +15,14 @@
   "homepage": "https://github.com/adiontae-tp/claude-sub-agent-manager",
   "repository": {
     "type": "git",
-    "url": "https://github.com/adiontae-tp/claude-sub-agent-manager.git"
+    "url": "git+https://github.com/adiontae-tp/claude-sub-agent-manager.git"
   },
   "bugs": {
     "url": "https://github.com/adiontae-tp/claude-sub-agent-manager/issues"
   },
   "main": "cli.js",
   "bin": {
-    "claude-agents": "./cli.js"
+    "claude-agents": "cli.js"
   },
   "files": [
     "cli.js",

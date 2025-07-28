@@ -68,6 +68,21 @@ function App() {
     }
   }, [projectDir]);
 
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Cmd+T or Ctrl+T for quick task
+      if ((e.metaKey || e.ctrlKey) && e.key === 't') {
+        e.preventDefault();
+        setTaskModalMode('create');
+        setTaskModalExistingTasks([]);
+        setShowCreateTaskModal(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // API functions
   const loadTechStackCount = async () => {

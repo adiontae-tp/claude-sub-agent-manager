@@ -1,14 +1,57 @@
 ---
 name: architect
 description: System architecture planner and technical standards guardian
-tasks:
-  - description: 50SU
 
 Analyze root cause and plan fix
     status: pending
     queued: false
     progress: 0
     subtasks: []
+
+Analyze root cause and plan fix
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Analyze root cause and plan fix
+
+Analyze root cause and plan fix
+    status: completed
+    queued: true
+    progress: 90
+    subtasks: []
+  - description: Workflow task: Analyze root cause and plan fix - 1753669667100
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Analyze root cause and plan fix
+    status: completed
+    queued: true
+    progress: 90
+    subtasks: []
+  - description: Workflow task: Analyze root cause and plan fix - 1753669667100
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Design the system architecture - 1753669667108
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Workflow Step: Analyze architecture for optimization opportunities
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+tasks:
+  - Running a workflow takes a long time.
+
+Workflow Step: Analyze architecture for optimization opportunities
 ---
 
 # 🧠 Architect Agent

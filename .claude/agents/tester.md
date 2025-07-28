@@ -7,10 +7,114 @@ Reproduce and document the bug
     queued: false
     progress: 0
     subtasks: []
-tasks:
-  - description: 50SU
 
 Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Verify fix and test edge cases
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Single task isn't working as expected when running a workflow. When you're in single task mode, you should just have to put in the task description and then create the work, create the task. Right now that's not working. And it's kind of hard to understand how to use a workflow.
+
+Reproduce and document the bug
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Single task isn't working as expected when running a workflow. When you're in single task mode, you should just have to put in the task description and then create the work, create the task. Right now that's not working. And it's kind of hard to understand how to use a workflow.
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Verify fix and test edge cases
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: 
+    status: in-progress
+    queued: false
+    progress: 20
+    subtasks: []
+  - description: Workflow task: Reproduce and document the bug - 1753669667097
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: 
+    status: in-progress
+    queued: false
+    progress: 20
+    subtasks: []
+  - description: Workflow task: Reproduce and document the bug - 1753669667097
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Workflow task: Verify fix and test edge cases - 1753669667105
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Verify fix and test edge cases
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: 
+    status: in-progress
+    queued: false
+    progress: 20
+    subtasks: []
+  - description: Workflow task: Reproduce and document the bug - 1753669667097
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Workflow task: Verify fix and test edge cases - 1753669667105
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - description: Test all the features - 1753669667112
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+  - Test all the features - 1753669667112
+
+Workflow Step: Profile and identify performance issues
+    status: pending
+    queued: false
+    progress: 0
+    subtasks: []
+
+Workflow Step: Verify performance improvements
     status: pending
     queued: false
     progress: 0
