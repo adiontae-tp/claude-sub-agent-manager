@@ -1,0 +1,26 @@
+{
+  "name": "Performance Optimization",
+  "description": "Identify and fix performance bottlenecks in the application",
+  "tasks": [
+    {
+      "description": "Profile and identify performance issues",
+      "agentId": "tester",
+      "instructions": "Run performance tests and document bottlenecks in CLAUDE.md."
+    },
+    {
+      "description": "Analyze architecture for optimization opportunities",
+      "agentId": "architect",
+      "instructions": "Review data flow and structure for performance improvements. Update CLAUDE.md."
+    },
+    {
+      "description": "Implement performance optimizations",
+      "agentId": "developer",
+      "instructions": "Apply optimizations (memoization, lazy loading, etc.) and document in CLAUDE.md."
+    },
+    {
+      "description": "Verify performance improvements",
+      "agentId": "tester",
+      "instructions": "Re-test performance and confirm improvements. Update metrics in CLAUDE.md."
+    }
+  ]
+}

@@ -6,6 +6,8 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
   const [workflows, setWorkflows] = useState([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
+  const [workflowMode, setWorkflowMode] = useState('individual'); // 'individual' or 'single'
+  const [singleTaskDescription, setSingleTaskDescription] = useState('');
 
   // Initialize task rows when modal opens
   useEffect(() => {
@@ -46,7 +48,7 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
 
   const handleWorkflowSelect = (workflow) => {
     setSelectedWorkflow(workflow);
-    if (workflow) {
+    if (workflow && workflowMode === 'individual') {
       // Add workflow tasks to current tasks
       const workflowTasks = workflow.tasks.map((task, index) => ({
         id: `workflow-${workflow.id}-${index}-${Date.now()}`,
@@ -55,6 +57,9 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
         fromWorkflow: true
       }));
       setTaskRows([...taskRows, ...workflowTasks]);
+      setShowWorkflowPreview(true);
+    } else if (workflow && workflowMode === 'single') {
+      // In single task mode, we'll use the workflow structure but with one description
       setShowWorkflowPreview(true);
     }
   };
@@ -81,6 +86,31 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
         onClose();
       } catch (error) {
         console.error('Failed to update tasks:', error);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Handle workflow single task mode
+    if (selectedWorkflow && workflowMode === 'single') {
+      if (!singleTaskDescription.trim()) {
+        alert('Please enter a task description');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // Create tasks for each step in the workflow with the same description
+        for (const task of selectedWorkflow.tasks) {
+          const fullDescription = `${singleTaskDescription}\n\n${task.description}\n${task.instructions || ''}`;
+          await onCreateTask(task.agentName, fullDescription.trim());
+        }
+        setSingleTaskDescription('');
+        setSelectedWorkflow(null);
+        onClose();
+      } catch (error) {
+        console.error('Failed to create workflow tasks:', error);
       } finally {
         setLoading(false);
       }
@@ -168,6 +198,21 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-medium text-blue-900">Use a Workflow Template</h3>
                     {selectedWorkflow && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-blue-700">
+                          Mode:
+                        </label>
+                        <select
+                          value={workflowMode}
+                          onChange={(e) => setWorkflowMode(e.target.value)}
+                          className="text-xs px-2 py-1 border border-blue-300 rounded bg-white"
+                        >
+                          <option value="individual">Individual Tasks</option>
+                          <option value="single">Single Task</option>
+                        </select>
+                      </div>
+                    )}
+                    {selectedWorkflow && (
                       <button
                         onClick={() => {
                           setSelectedWorkflow(null);
@@ -209,6 +254,49 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
                 </div>
               )}
               
+              {/* Single task mode UI */}
+              {selectedWorkflow && workflowMode === 'single' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Task Description
+                    </label>
+                    <textarea
+                      value={singleTaskDescription}
+                      onChange={(e) => {
+                        setSingleTaskDescription(e.target.value);
+                        e.target.style.height = 'auto';
+                        e.target.style.height = e.target.scrollHeight + 'px';
+                      }}
+                      placeholder="Enter the task description. This will be applied to all steps in the workflow..."
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+                  
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Workflow Steps Preview</h4>
+                    <div className="space-y-2">
+                      {selectedWorkflow.tasks.map((task, index) => (
+                        <div key={index} className="flex items-start gap-2 text-sm">
+                          <span className="text-gray-400 mt-0.5">{index + 1}.</span>
+                          <div className="flex-1">
+                            <span className="font-medium text-gray-700">{task.agentName}</span>
+                            <span className="text-gray-500"> - {task.description}</span>
+                            {task.instructions && (
+                              <div className="text-xs text-gray-400 mt-1">{task.instructions}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 text-xs text-gray-500">
+                      Your task description will be sent to each agent along with their specific workflow step.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+              <div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -334,7 +422,9 @@ const CreateTaskModal = ({ isOpen, onClose, agents, onCreateTask, existingTasks 
                 Add Task
               </button>
             </div>
-          )}
+            )}
+          </div>
+        )}
         </div>
 
         <div className="border-t p-6">

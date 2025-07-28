@@ -1,0 +1,31 @@
+{
+  "name": "Feature Implementation",
+  "description": "Complete workflow for implementing a new user-facing feature from architecture to deployment",
+  "tasks": [
+    {
+      "description": "Define architecture and data needs",
+      "agentId": "architect",
+      "instructions": "Update local CLAUDE.md file with file structure and data model plan."
+    },
+    {
+      "description": "Design UI scaffolding and layout",
+      "agentId": "designer",
+      "instructions": "Update CLAUDE.md with component hierarchy and style guide changes."
+    },
+    {
+      "description": "Implement logic, state, and data flow",
+      "agentId": "developer",
+      "instructions": "Update CLAUDE.md with new hooks used and file changes."
+    },
+    {
+      "description": "Test full flow for usability and bugs",
+      "agentId": "tester",
+      "instructions": "Document any bugs or findings in CLAUDE.md."
+    },
+    {
+      "description": "Final code review and merge",
+      "agentId": "developer",
+      "instructions": "Mark feature as complete in CLAUDE.md with final notes."
+    }
+  ]
+}

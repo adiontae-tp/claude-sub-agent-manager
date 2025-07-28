@@ -976,43 +976,7 @@ ${enhancedSystemPrompt}
   }
 });
 
-// Load agent templates from directory
-app.get('/api/agent-templates', async (req, res) => {
-  try {
-    const templatesDir = path.join(__dirname, 'agent-templates');
-    const files = await fs.readdir(templatesDir);
-    const templates = [];
-    
-    for (const file of files) {
-      if (file.endsWith('.md') && file !== 'README.md') {
-        const content = await fs.readFile(path.join(templatesDir, file), 'utf-8');
-        
-        // Parse template content
-        const nameMatch = content.match(/## Agent Details[\s\S]*?\*\*Name\*\*:\s*(.+)/);
-        const descMatch = content.match(/## Agent Details[\s\S]*?\*\*Description\*\*:\s*(.+)/);
-        const categoryMatch = content.match(/## Agent Details[\s\S]*?\*\*Category\*\*:\s*(.+)/);
-        
-        // Extract system prompt (everything after "## System Prompt")
-        const systemPromptMatch = content.match(/## System Prompt\s*\n\s*([\s\S]*?)(?=\n## |$)/);
-        
-        if (nameMatch && descMatch && systemPromptMatch) {
-          templates.push({
-            name: nameMatch[1].trim(),
-            description: descMatch[1].trim(),
-            category: categoryMatch ? categoryMatch[1].trim() : 'General',
-            systemPrompt: systemPromptMatch[1].trim(),
-            filename: file
-          });
-        }
-      }
-    }
-    
-    res.json({ templates });
-  } catch (error) {
-    console.error('Error loading templates:', error);
-    res.status(500).json({ error: 'Failed to load templates' });
-  }
-});
+// Load agent templates from directory - REMOVED DUPLICATE ENDPOINT
 
 // Tech Stack API Endpoints
 
@@ -1841,6 +1805,73 @@ app.delete('/api/workflows/:encodedDir/:workflowId', async (req, res) => {
       res.json({ success: true });
     }
   );
+});
+
+// Get workflow templates
+app.get('/api/workflow-templates', async (req, res) => {
+  try {
+    const templatesDir = path.join(__dirname, 'workflow-templates');
+    
+    if (!fsSync.existsSync(templatesDir)) {
+      console.log('Workflow templates directory not found:', templatesDir);
+      return res.json([]);
+    }
+    
+    const templateFiles = fsSync.readdirSync(templatesDir).filter(f => f.endsWith('.json'));
+    
+    const templates = [];
+    for (const file of templateFiles) {
+      try {
+        const content = fsSync.readFileSync(path.join(templatesDir, file), 'utf8');
+        const template = JSON.parse(content);
+        templates.push({
+          id: file.replace('.json', ''),
+          ...template
+        });
+      } catch (err) {
+        console.error(`Error loading template ${file}:`, err);
+      }
+    }
+    
+    res.json(templates);
+  } catch (err) {
+    console.error('Error loading workflow templates:', err);
+    res.status(500).json({ error: 'Failed to load workflow templates' });
+  }
+});
+
+// Get agent templates
+app.get('/api/agent-templates', async (req, res) => {
+  try {
+    const config = getConfig();
+    const projectRoot = process.env.CLAUDE_AGENTS_ROOT || __dirname;
+    const templatesDir = config.templatesDirectory 
+      ? path.join(projectRoot, config.templatesDirectory)
+      : path.join(__dirname, 'agent-templates');
+    
+    if (!fsSync.existsSync(templatesDir)) {
+      console.log('Templates directory not found:', templatesDir);
+      return res.json([]);
+    }
+    
+    const templateFiles = fsSync.readdirSync(templatesDir).filter(f => f.endsWith('.json'));
+    
+    const templates = [];
+    for (const file of templateFiles) {
+      try {
+        const content = fsSync.readFileSync(path.join(templatesDir, file), 'utf8');
+        const template = JSON.parse(content);
+        templates.push(template);
+      } catch (err) {
+        console.error(`Error loading agent template ${file}:`, err);
+      }
+    }
+    
+    res.json(templates);
+  } catch (err) {
+    console.error('Error loading agent templates:', err);
+    res.status(500).json({ error: 'Failed to load agent templates' });
+  }
 });
 
 const PORT = process.env.PORT || 3001;

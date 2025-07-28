@@ -1,0 +1,26 @@
+{
+  "name": "Bug Fix",
+  "description": "Systematic approach to identifying, fixing, and verifying bug resolutions",
+  "tasks": [
+    {
+      "description": "Reproduce and document the bug",
+      "agentId": "tester",
+      "instructions": "Create detailed reproduction steps and document in CLAUDE.md."
+    },
+    {
+      "description": "Analyze root cause and plan fix",
+      "agentId": "architect",
+      "instructions": "Identify architectural issues if any and document approach in CLAUDE.md."
+    },
+    {
+      "description": "Implement the bug fix",
+      "agentId": "developer",
+      "instructions": "Fix the issue following the plan and update CLAUDE.md with changes."
+    },
+    {
+      "description": "Verify fix and test edge cases",
+      "agentId": "tester",
+      "instructions": "Confirm bug is fixed and test related functionality. Update CLAUDE.md."
+    }
+  ]
+}

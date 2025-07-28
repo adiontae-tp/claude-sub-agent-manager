@@ -1,0 +1,26 @@
+{
+  "name": "Design Review",
+  "description": "Review and improve existing UI/UX design and implementation",
+  "tasks": [
+    {
+      "description": "Audit current design implementation",
+      "agentId": "designer",
+      "instructions": "Review current UI against design system and document inconsistencies in CLAUDE.md."
+    },
+    {
+      "description": "Test user experience and accessibility",
+      "agentId": "tester",
+      "instructions": "Test UX flows and accessibility compliance. Document findings in CLAUDE.md."
+    },
+    {
+      "description": "Create improved design specifications",
+      "agentId": "designer",
+      "instructions": "Design improvements based on findings and update design system in CLAUDE.md."
+    },
+    {
+      "description": "Implement design improvements",
+      "agentId": "developer",
+      "instructions": "Apply design changes following specifications and update CLAUDE.md."
+    }
+  ]
+}

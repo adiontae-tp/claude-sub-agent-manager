@@ -521,6 +521,7 @@ function App() {
                   agents={existingAgents}
                   onShowCreateWorkflow={handleShowCreateWorkflow}
                   onEditWorkflow={handleEditWorkflow}
+                  onRefreshAgents={loadAgents}
                 />
               )}
 
