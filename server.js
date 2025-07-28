@@ -983,7 +983,31 @@ ${enhancedSystemPrompt}
 // Get tech stack technologies and common stacks
 app.get('/api/tech-stack/technologies', async (req, res) => {
   try {
-    const techStackData = JSON.parse(await fs.readFile(path.join(__dirname, 'tech-stack-data.json'), 'utf-8'));
+    // Try multiple possible locations for tech stack data
+    let techStackDataPath = null;
+    const possiblePaths = [
+      // When installed as NPM package
+      path.join(__dirname, 'tech-stack-data.json'),
+      // When running from source
+      path.join(__dirname, 'tech-stack-data.json'),
+      // Fallback to current directory
+      path.join(process.cwd(), 'tech-stack-data.json')
+    ];
+    
+    for (const dataPath of possiblePaths) {
+      if (fsSync.existsSync(dataPath)) {
+        techStackDataPath = dataPath;
+        break;
+      }
+    }
+    
+    if (!techStackDataPath) {
+      console.log('Tech stack data file not found in any of these locations:', possiblePaths);
+      return res.json({ technologies: {}, commonStacks: {} });
+    }
+    
+    console.log('Loading tech stack data from:', techStackDataPath);
+    const techStackData = JSON.parse(await fs.readFile(techStackDataPath, 'utf-8'));
     res.json({ technologies: techStackData.technologies, commonStacks: techStackData.commonStacks });
   } catch (error) {
     console.error('Error loading tech stack data:', error);
@@ -1810,13 +1834,30 @@ app.delete('/api/workflows/:encodedDir/:workflowId', async (req, res) => {
 // Get workflow templates
 app.get('/api/workflow-templates', async (req, res) => {
   try {
-    const templatesDir = path.join(__dirname, 'workflow-templates');
+    // Try multiple possible locations for templates
+    let templatesDir = null;
+    const possiblePaths = [
+      // When installed as NPM package
+      path.join(__dirname, 'workflow-templates'),
+      // When running from source
+      path.join(__dirname, 'workflow-templates'),
+      // Fallback to current directory
+      path.join(process.cwd(), 'workflow-templates')
+    ];
     
-    if (!fsSync.existsSync(templatesDir)) {
-      console.log('Workflow templates directory not found:', templatesDir);
+    for (const templatePath of possiblePaths) {
+      if (fsSync.existsSync(templatePath)) {
+        templatesDir = templatePath;
+        break;
+      }
+    }
+    
+    if (!templatesDir) {
+      console.log('Workflow templates directory not found in any of these locations:', possiblePaths);
       return res.json([]);
     }
     
+    console.log('Loading workflow templates from:', templatesDir);
     const templateFiles = fsSync.readdirSync(templatesDir).filter(f => f.endsWith('.json'));
     
     const templates = [];
@@ -1845,15 +1886,33 @@ app.get('/api/agent-templates', async (req, res) => {
   try {
     const config = getConfig();
     const projectRoot = process.env.CLAUDE_AGENTS_ROOT || __dirname;
-    const templatesDir = config.templatesDirectory 
-      ? path.join(projectRoot, config.templatesDirectory)
-      : path.join(__dirname, 'agent-templates');
     
-    if (!fsSync.existsSync(templatesDir)) {
-      console.log('Templates directory not found:', templatesDir);
+    // Try multiple possible locations for templates
+    let templatesDir = null;
+    const possiblePaths = [
+      // When installed as NPM package
+      path.join(__dirname, 'agent-templates'),
+      // When running from source
+      path.join(__dirname, 'agent-templates'),
+      // From config (if specified)
+      config.templatesDirectory ? path.join(projectRoot, config.templatesDirectory) : null,
+      // Fallback to project root
+      path.join(projectRoot, 'agent-templates')
+    ].filter(Boolean);
+    
+    for (const templatePath of possiblePaths) {
+      if (fsSync.existsSync(templatePath)) {
+        templatesDir = templatePath;
+        break;
+      }
+    }
+    
+    if (!templatesDir) {
+      console.log('Templates directory not found in any of these locations:', possiblePaths);
       return res.json([]);
     }
     
+    console.log('Loading agent templates from:', templatesDir);
     const templateFiles = fsSync.readdirSync(templatesDir).filter(f => f.endsWith('.json'));
     
     const templates = [];
@@ -1958,10 +2017,15 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\nShutting down server...');
-  if (terminalProcess) {
-    console.log('Stopping terminal process...');
-    terminalProcess.kill();
+  
+  // Kill all terminal processes
+  for (const [id, term] of terminals) {
+    if (term.process) {
+      console.log(`Stopping terminal ${id}...`);
+      term.process.kill();
+    }
   }
+  
   if (global.server) {
     global.server.close(() => {
       console.log('Server stopped');

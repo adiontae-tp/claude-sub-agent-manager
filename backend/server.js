@@ -868,7 +868,34 @@ ${enhancedSystemPrompt}
 // Load agent templates from directory
 app.get('/api/agent-templates', async (req, res) => {
   try {
-    const templatesDir = path.join(__dirname, '..', 'agent-templates');
+    // Try multiple possible locations for templates
+    let templatesDir = null;
+    const possiblePaths = [
+      // When installed as NPM package
+      path.join(__dirname, '..', 'agent-templates'),
+      // When running from source
+      path.join(__dirname, '..', 'agent-templates'),
+      // Fallback to current directory
+      path.join(__dirname, 'agent-templates')
+    ];
+    
+    for (const templatePath of possiblePaths) {
+      try {
+        await fs.access(templatePath);
+        templatesDir = templatePath;
+        break;
+      } catch (err) {
+        // Path doesn't exist, try next one
+        continue;
+      }
+    }
+    
+    if (!templatesDir) {
+      console.log('Templates directory not found in any of these locations:', possiblePaths);
+      return res.json({ templates: [] });
+    }
+    
+    console.log('Loading agent templates from:', templatesDir);
     const files = await fs.readdir(templatesDir);
     const templates = [];
     
@@ -908,7 +935,35 @@ app.get('/api/agent-templates', async (req, res) => {
 // Get tech stack technologies and common stacks
 app.get('/api/tech-stack/technologies', async (req, res) => {
   try {
-    const techStackData = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'tech-stack-data.json'), 'utf-8'));
+    // Try multiple possible locations for tech stack data
+    let techStackDataPath = null;
+    const possiblePaths = [
+      // When installed as NPM package
+      path.join(__dirname, '..', 'tech-stack-data.json'),
+      // When running from source
+      path.join(__dirname, '..', 'tech-stack-data.json'),
+      // Fallback to current directory
+      path.join(__dirname, 'tech-stack-data.json')
+    ];
+    
+    for (const dataPath of possiblePaths) {
+      try {
+        await fs.access(dataPath);
+        techStackDataPath = dataPath;
+        break;
+      } catch (err) {
+        // Path doesn't exist, try next one
+        continue;
+      }
+    }
+    
+    if (!techStackDataPath) {
+      console.log('Tech stack data file not found in any of these locations:', possiblePaths);
+      return res.json({ technologies: {}, commonStacks: {} });
+    }
+    
+    console.log('Loading tech stack data from:', techStackDataPath);
+    const techStackData = JSON.parse(await fs.readFile(techStackDataPath, 'utf-8'));
     res.json({ technologies: techStackData.technologies, commonStacks: techStackData.commonStacks });
   } catch (error) {
     console.error('Error loading tech stack data:', error);
