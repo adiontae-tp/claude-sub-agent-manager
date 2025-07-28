@@ -1,6 +1,6 @@
 {
   "name": "@adiontaegerron/claude-sub-agent-manager",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "A CLI tool for managing Claude Code sub-agents in your projects",
   "author": "Claude Sub-Agent Manager Contributors",
   "license": "MIT",
@@ -29,8 +29,8 @@
     "server.js",
     "static/**/*",
     "agent-templates/**/*",
+    "workflow-templates/**/*",
     "tech-stack-data.json",
-    "offline-templates.json",
     "README.md",
     "LICENSE"
   ],
